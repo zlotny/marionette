@@ -45,4 +45,11 @@ if [ ! -f "$oww/embedding_model.onnx" ]; then
     curl -fL -o "$oww/$m.onnx" "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/$m.onnx"
   done
 fi
+app=app/src/main/assets
+mkdir -p "$app/oww" "$app/vad"
+for m in melspectrogram embedding_model; do
+  [ -f "$app/oww/$m.onnx" ] || curl -fL -o "$app/oww/$m.onnx" "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/$m.onnx"
+done
+SILERO_VERSION=v6.2.3
+[ -f "$app/vad/silero_vad.onnx" ] || curl -fL -o "$app/vad/silero_vad.onnx" "https://github.com/snakers4/silero-vad/raw/$SILERO_VERSION/src/silero_vad/data/silero_vad.onnx"
 echo "deps ready"

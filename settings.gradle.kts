@@ -15,4 +15,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "marionette"
+include(":app")
 include(":spike")

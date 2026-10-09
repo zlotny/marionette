@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name="dev.marionette.debug.DebugReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver"
+            xmlns:tools="http://schemas.android.com/tools">
+            <intent-filter>
+                <action android:name="dev.marionette.DEBUG_COMMAND" />
+                <action android:name="dev.marionette.DEBUG_BACKEND" />
+                <action android:name="dev.marionette.DEBUG_RESET" />
+                <action android:name="dev.marionette.DEBUG_CONFIRM" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

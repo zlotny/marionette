@@ -12,3 +12,6 @@ spike/libs/*.aar
 spike/src/main/assets/kws/
 spike/src/main/assets/asr/
 spike/src/main/assets/oww/
+dev/openclaw/.env
+app/src/main/assets/oww/
+app/src/main/assets/vad/

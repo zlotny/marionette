@@ -1,0 +1,90 @@
+package dev.marionette.launch
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import androidx.core.content.ContextCompat
+import dev.marionette.assist.MarionetteVoiceInteractionService
+import dev.marionette.core.Logger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
+
+enum class LaunchStatus { STARTED, WAITING_FOR_UNLOCK, FAILED }
+
+class Launcher(private val context: Context, private val isLocked: () -> Boolean) {
+    private val main = Handler(Looper.getMainLooper())
+    private var pending: PendingLaunch? = null
+    private var unlockReceiver: BroadcastReceiver? = null
+
+    private class PendingLaunch(val intent: Intent, val label: String, val result: CompletableDeferred<LaunchStatus>)
+
+    suspend fun launch(intent: Intent, label: String, unlock: Boolean = true): LaunchStatus {
+        val target = Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (!unlock || !isLocked()) return start(target, label)
+        val launch = PendingLaunch(target, label, CompletableDeferred())
+        pending = launch
+        armUnlockFallback()
+        val vis = MarionetteVoiceInteractionService.instance
+        if (vis == null) {
+            Logger.w("Launch $label while locked: assistant service not bound, waiting for unlock")
+            return LaunchStatus.WAITING_FOR_UNLOCK
+        }
+        main.post {
+            runCatching { vis.showSession(Bundle().apply { putBoolean(EXTRA_LAUNCH, true) }, 0) }
+                .onFailure { Logger.w("showSession for launch failed", it) }
+        }
+        return withTimeoutOrNull(DISMISS_TIMEOUT_MILLIS) { launch.result.await() } ?: LaunchStatus.WAITING_FOR_UNLOCK
+    }
+
+    fun onKeyguardDismissed(activity: Context) {
+        val launch = pending ?: return
+        pending = null
+        disarmUnlockFallback()
+        val status = start(launch.intent, launch.label, activity)
+        launch.result.complete(status)
+    }
+
+    fun onKeyguardDismissCancelled() {
+        pending?.result?.complete(LaunchStatus.WAITING_FOR_UNLOCK)
+    }
+
+    val hasPending: Boolean get() = pending != null
+
+    private fun start(intent: Intent, label: String, from: Context = context): LaunchStatus = runCatching {
+        from.startActivity(intent)
+        Logger.i("Launched $label")
+        LaunchStatus.STARTED
+    }.getOrElse {
+        Logger.w("Launch $label failed", it)
+        LaunchStatus.FAILED
+    }
+
+    private fun armUnlockFallback() {
+        if (unlockReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) {
+                val launch = pending ?: return disarmUnlockFallback()
+                pending = null
+                disarmUnlockFallback()
+                Logger.i("Unlock fallback starts ${launch.label}")
+                launch.result.complete(start(launch.intent, launch.label))
+            }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_EXPORTED)
+        unlockReceiver = receiver
+    }
+
+    private fun disarmUnlockFallback() {
+        unlockReceiver?.let { runCatching { context.unregisterReceiver(it) } }
+        unlockReceiver = null
+    }
+
+    companion object {
+        const val EXTRA_LAUNCH = "dev.marionette.LAUNCH"
+        private const val DISMISS_TIMEOUT_MILLIS = 6_000L
+    }
+}
