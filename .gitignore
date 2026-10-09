@@ -1,0 +1,14 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+*.apk
+*.aab
+spike/libs/*.aar
+spike/src/main/assets/kws/
+spike/src/main/assets/asr/
+spike/src/main/assets/oww/
