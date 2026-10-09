@@ -77,6 +77,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.marionette.R
+import dev.marionette.access.Access
+import dev.marionette.ui.access.rememberAccessState
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.ui.platform.LocalContext
 import dev.marionette.agent.StepStatus
 import dev.marionette.agent.ToolStep
 import dev.marionette.agent.Turn
@@ -98,8 +102,13 @@ fun HomeScreen(
     onOpenActivity: () -> Unit,
     onTalk: () -> Unit,
     onCancelVoice: () -> Unit,
+    onOpenPermissions: () -> Unit,
     viewModel: HomeViewModel = viewModel(),
 ) {
+    val context = LocalContext.current
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val access = rememberAccessState()
+    val missingEssential = Access.relevant(context, settings).any { it.essential && !access.isGranted(it) }
     val turns by viewModel.turns.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
@@ -143,10 +152,13 @@ fun HomeScreen(
                 }
             },
         ) { padding ->
-            if (turns.isEmpty()) {
-                EmptyState(Modifier.padding(padding), voice, onSuggestion = viewModel::send)
-            } else {
-                Conversation(turns, Modifier.padding(padding))
+            Column(Modifier.padding(padding)) {
+                AnimatedVisibility(missingEssential) { AccessBanner(onOpenPermissions) }
+                if (turns.isEmpty()) {
+                    EmptyState(Modifier.weight(1f), voice, onSuggestion = viewModel::send)
+                } else {
+                    Conversation(turns, Modifier.weight(1f))
+                }
             }
         }
         ListeningGlow(
@@ -165,6 +177,28 @@ fun HomeScreen(
             confirmButton = { TextButton(onClick = { viewModel.answer(request.id, true) }) { Text(stringResource(R.string.confirm_yes)) } },
             dismissButton = { TextButton(onClick = { viewModel.answer(request.id, false) }) { Text(stringResource(R.string.confirm_no)) } },
         )
+    }
+}
+
+@Composable
+private fun AccessBanner(onReview: () -> Unit) {
+    Surface(
+        onClick = onReview,
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Shield, null, tint = MaterialTheme.colorScheme.onErrorContainer)
+            Spacer(Modifier.size(12.dp))
+            Text(
+                stringResource(R.string.home_banner_missing),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onReview) { Text(stringResource(R.string.home_banner_fix)) }
+        }
     }
 }
 

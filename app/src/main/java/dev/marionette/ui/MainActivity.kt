@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
                     onOpenActivity = { nav.navigate(ActivityRoute) },
                     onTalk = ::talk,
                     onCancelVoice = { VoiceService.send(this@MainActivity, VoiceService.ACTION_CANCEL) },
+                    onOpenPermissions = { nav.navigate(SettingsNavigation.Permissions) },
                 )
             }
             composable<ActivityRoute> { ActivityScreen(onBack = nav::navigateUp) }

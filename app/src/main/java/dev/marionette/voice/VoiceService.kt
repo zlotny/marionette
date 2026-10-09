@@ -42,6 +42,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
@@ -60,6 +62,7 @@ class VoiceService : LifecycleService() {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val micDispatcher = Dispatchers.IO.limitedParallelism(1)
+    private val detectorLock = Mutex()
 
     @Volatile private var mode = Mode.WAKE
     @Volatile private var detector: AcousticWakeDetector? = null
@@ -110,6 +113,9 @@ class VoiceService : LifecycleService() {
             ACTION_ENROLL_FINISH -> finishEnrollment(save = true)
             ACTION_ENROLL_CANCEL -> finishEnrollment(save = false)
             ACTION_RELOAD -> reloadDetector()
+            ACTION_WAKE_TEST_START -> wakeTest = true
+            ACTION_WAKE_TEST_STOP -> wakeTest = false
+            ACTION_ENROLL_CLEAR -> clearEnrollment()
         }
         ensureCapture()
         return START_STICKY
@@ -117,6 +123,7 @@ class VoiceService : LifecycleService() {
 
     override fun onDestroy() {
         running = false
+        wakeTest = false
         graph.confirmations.voiceHandler = null
         commandJob?.cancel()
         captureJob?.cancel()
@@ -147,16 +154,16 @@ class VoiceService : LifecycleService() {
         }
         captureJob = lifecycleScope.launch(micDispatcher) {
             reloadDetectorNow()
-            VoiceBus.update { it.copy(phase = VoicePhase.WAITING, lastError = null) }
+            VoiceBus.update { it.copy(phase = if (mode == Mode.ENROLL) VoicePhase.ENROLLING else VoicePhase.WAITING, lastError = null) }
             capture()
         }
     }
 
     private fun reloadDetector() {
-        lifecycleScope.launch(micDispatcher) { reloadDetectorNow() }
+        lifecycleScope.launch(Dispatchers.IO) { reloadDetectorNow() }
     }
 
-    private fun reloadDetectorNow() {
+    private suspend fun reloadDetectorNow() = detectorLock.withLock {
         val settings = graph.settings.current
         val loaded = templates.load()
         val embedder = embedder ?: runCatching { SpeechEmbedder(assets) }.onFailure { Logger.e("Embedder load failed", it) }.getOrNull()
@@ -215,7 +222,12 @@ class VoiceService : LifecycleService() {
                         }
                         if (fired) {
                             Logger.i("Wake word detected (score $score)")
-                            lifecycleScope.launch { trigger(TriggerSource.WAKE_WORD) }
+                            VoiceBus.update { it.copy(lastWakeAt = now) }
+                            if (wakeTest) {
+                                lifecycleScope.launch { playEarcon(Earcon.DONE) }
+                            } else {
+                                lifecycleScope.launch { trigger(TriggerSource.WAKE_WORD) }
+                            }
                         }
                     }
                     Mode.COMMAND -> commandSink?.let { feedCommand(it, pcm, n, chunk) }
@@ -380,6 +392,13 @@ class VoiceService : LifecycleService() {
         }
     }
 
+    private fun clearEnrollment() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            templates.clear()
+            reloadDetectorNow()
+        }
+    }
+
     private fun startEnrollment() {
         commandJob?.cancel()
         enrollSamples = 0
@@ -409,7 +428,7 @@ class VoiceService : LifecycleService() {
         lifecycleScope.launch {
             if (save && audio.isNotEmpty()) {
                 val built = withContext(Dispatchers.Default) {
-                    val e = embedder ?: SpeechEmbedder(assets).also { embedder = it }
+                    val e = detectorLock.withLock { embedder ?: SpeechEmbedder(assets).also { embedder = it } }
                     AcousticWakeDetector.buildTemplates(e, audio)
                 }
                 if (built.isNotEmpty()) {
@@ -420,7 +439,7 @@ class VoiceService : LifecycleService() {
                 }
                 Logger.i("Enrollment built ${built.size} templates")
             }
-            withContext(micDispatcher) { reloadDetectorNow() }
+            withContext(Dispatchers.IO) { reloadDetectorNow() }
             mode = Mode.WAKE
             VoiceBus.update { it.copy(phase = VoicePhase.WAITING) }
         }
@@ -489,6 +508,9 @@ class VoiceService : LifecycleService() {
         const val ACTION_ENROLL_FINISH = "dev.marionette.voice.ENROLL_FINISH"
         const val ACTION_ENROLL_CANCEL = "dev.marionette.voice.ENROLL_CANCEL"
         const val ACTION_RELOAD = "dev.marionette.voice.RELOAD"
+        const val ACTION_ENROLL_CLEAR = "dev.marionette.voice.ENROLL_CLEAR"
+        const val ACTION_WAKE_TEST_START = "dev.marionette.voice.WAKE_TEST_START"
+        const val ACTION_WAKE_TEST_STOP = "dev.marionette.voice.WAKE_TEST_STOP"
         const val EXTRA_SOURCE = "source"
 
         private const val NOTIFICATION_ID = 7
@@ -503,6 +525,9 @@ class VoiceService : LifecycleService() {
         @Volatile
         var running = false
             private set
+
+        @Volatile
+        private var wakeTest = false
 
         fun intent(context: Context, action: String): Intent = Intent(context, VoiceService::class.java).setAction(action)
 

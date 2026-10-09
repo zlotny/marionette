@@ -42,13 +42,28 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.access.Access
+import dev.marionette.settings.AppSettings
+import dev.marionette.ui.access.AccessList
+import dev.marionette.ui.access.rememberAccessState
+import dev.marionette.ui.components.ChoiceRow
+import dev.marionette.ui.components.SettingsGroup
+import dev.marionette.ui.components.SettingsIcon
 import dev.marionette.ui.components.VoiceOrb
+import dev.marionette.ui.voice.VoiceTestButton
+import dev.marionette.ui.voice.WakeEnrollment
+import dev.marionette.ui.voice.languageOptions
+import dev.marionette.voice.VoiceBus
+import dev.marionette.voice.VoicePhase
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.ui.platform.LocalContext
 import dev.marionette.ui.settings.BackendFormContent
 import dev.marionette.ui.settings.BackendViewModel
 import dev.marionette.ui.theme.Brand
 import kotlinx.coroutines.launch
 
-enum class OnboardingStep { WELCOME, BACKEND, DONE }
+enum class OnboardingStep { WELCOME, BACKEND, PERMISSIONS, VOICE, WAKE, DONE }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -57,11 +72,21 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
     val step = OnboardingStep.entries[index]
     val form by backend.form.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val settings by MarionetteApp.graph.settings.settings.collectAsStateWithLifecycle()
+    val voice by VoiceBus.status.collectAsStateWithLifecycle()
+    val access = rememberAccessState()
     BackHandler(enabled = index > 0) { index-- }
 
+    val accesses = Access.relevant(context, settings)
     val canContinue = when (step) {
         OnboardingStep.BACKEND -> form.passed
+        OnboardingStep.PERMISSIONS -> accesses.filter { it.essential }.all(access::isGranted)
+        OnboardingStep.WAKE -> voice.phase != VoicePhase.ENROLLING
         else -> true
+    }
+    val update: ((AppSettings) -> AppSettings) -> Unit = { transform ->
+        scope.launch { MarionetteApp.graph.settings.update { transform(it) } }
     }
 
     Column(
@@ -106,6 +131,36 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
                             onTest = backend::test,
                         )
                     }
+                    OnboardingStep.PERMISSIONS -> {
+                        StepHeader(R.string.onboarding_permissions_title, R.string.onboarding_permissions_body)
+                        AccessList(stringResource(R.string.access_group_essential), accesses.filter { it.essential }, access)
+                        Spacer(Modifier.height(16.dp))
+                        AccessList(stringResource(R.string.access_group_optional), accesses.filterNot { it.essential }, access)
+                    }
+                    OnboardingStep.VOICE -> {
+                        StepHeader(R.string.onboarding_voice_title, R.string.onboarding_voice_body)
+                        SettingsGroup(null) {
+                            item { i, n ->
+                                ChoiceRow(
+                                    i, n,
+                                    headline = stringResource(R.string.voice_language),
+                                    options = languageOptions(),
+                                    selected = settings.language,
+                                    onSelect = { tag -> update { it.copy(language = tag, ttsVoice = "") } },
+                                    leading = { SettingsIcon(Icons.Rounded.Translate) },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        VoiceTestButton(settings.language, settings.ttsVoice, settings.speechRate)
+                    }
+                    OnboardingStep.WAKE -> {
+                        StepHeader(R.string.onboarding_wake_title, R.string.onboarding_wake_body)
+                        WakeEnrollment(
+                            savedPhrase = settings.wakePhrase,
+                            onPhrase = { phrase -> update { it.copy(wakePhrase = phrase) } },
+                        )
+                    }
                     OnboardingStep.DONE -> Hero(R.string.onboarding_done_title, R.string.onboarding_done_body)
                 }
             }
@@ -135,6 +190,7 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
                         when (step) {
                             OnboardingStep.WELCOME -> R.string.onboarding_start
                             OnboardingStep.DONE -> R.string.onboarding_finish
+                            OnboardingStep.WAKE -> if (voice.templateCount > 0) R.string.action_continue else R.string.action_skip
                             else -> R.string.action_continue
                         },
                     ),

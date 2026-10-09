@@ -19,6 +19,7 @@ data class VoiceStatus(
     val inputDevice: String? = null,
     val lastError: String? = null,
     val lastScore: Float? = null,
+    val lastWakeAt: Long = 0,
 )
 
 object VoiceBus {
