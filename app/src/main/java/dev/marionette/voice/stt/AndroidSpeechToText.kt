@@ -21,6 +21,7 @@ import java.io.IOException
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.Locale
 import java.util.concurrent.LinkedBlockingQueue
 
 class AndroidSpeechToText(private val context: Context) : SpeechToText {
@@ -30,7 +31,7 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
     override fun isAvailable(): Boolean = Build.VERSION.SDK_INT >= 33 &&
         (SpeechRecognizer.isOnDeviceRecognitionAvailable(context) || SpeechRecognizer.isRecognitionAvailable(context))
 
-    override suspend fun start(language: String, onPartial: (String) -> Unit): SttSession = withContext(Dispatchers.Main) {
+    override suspend fun start(language: String, secondLanguage: String, onPartial: (String) -> Unit): SttSession = withContext(Dispatchers.Main) {
         if (Build.VERSION.SDK_INT < 33) throw SttException("Android 13 or newer is required for on-device speech recognition.")
         val onDevice = SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
         val recognizer = if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(context) else SpeechRecognizer.createSpeechRecognizer(context)
@@ -48,9 +49,14 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 10_000L)
         if (language.isNotBlank()) intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
         if (onDevice) intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+        if (secondLanguage.isNotBlank() && Build.VERSION.SDK_INT >= 34) {
+            val primary = language.ifBlank { Locale.getDefault().toLanguageTag() }
+            intent.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_HIGH_PRECISION)
+            intent.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, arrayListOf(primary, secondLanguage))
+        }
         recognizer.setRecognitionListener(session.listener)
         recognizer.startListening(intent)
-        Logger.i("Android STT started (onDevice=$onDevice, language=${language.ifBlank { "default" }})")
+        Logger.i("Android STT started (onDevice=$onDevice, language=${language.ifBlank { "default" }}, switch=${secondLanguage.ifBlank { "off" }})")
         session
     }
 

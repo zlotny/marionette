@@ -13,7 +13,7 @@ interface SpeechToText {
 
     fun isAvailable(): Boolean
 
-    suspend fun start(language: String, onPartial: (String) -> Unit): SttSession
+    suspend fun start(language: String, secondLanguage: String, onPartial: (String) -> Unit): SttSession
 }
 
 class SttException(message: String) : Exception(message)

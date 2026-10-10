@@ -50,7 +50,7 @@ class UiReadTool : Tool {
         integer("max_elements", "Maximum elements. Default 120.")
     }
 
-    override fun summary(args: JsonObject) = "screen"
+    override fun summary(args: JsonObject) = ""
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val (service, error) = screenGuard(ctx)

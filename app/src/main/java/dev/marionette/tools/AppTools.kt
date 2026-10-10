@@ -42,6 +42,7 @@ object InstalledApps {
                 label.split(' ').any { it.startsWith(q) } -> 2
                 q in label -> 3
                 q in app.packageName.lowercase() -> 4
+                q.split(' ').all { it in app.packageName.lowercase().split('.') } -> 5
                 else -> null
             }
             score?.let { app to it }
@@ -59,7 +60,7 @@ class ListAppsTool : Tool {
         integer("limit", "Maximum results. Default 50.")
     }
 
-    override fun summary(args: JsonObject) = args.string("query") ?: "all apps"
+    override fun summary(args: JsonObject) = args.string("query").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val apps = InstalledApps.list(ctx.context.packageManager)
@@ -78,7 +79,7 @@ class OpenAppTool : Tool {
         string("app", "App name as the user says it (\"WhatsApp\", \"Spotify\") or a package name.", required = true)
     }
 
-    override fun summary(args: JsonObject) = args.string("app") ?: "app"
+    override fun summary(args: JsonObject) = args.string("app").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val query = args.string("app") ?: return ToolResults.error("bad_arguments", "app is required.")
@@ -101,7 +102,7 @@ class OpenUrlTool : Tool {
         string("package", "Optional package name of the app that must handle it.")
     }
 
-    override fun summary(args: JsonObject) = args.string("url")?.take(60) ?: "link"
+    override fun summary(args: JsonObject) = args.string("url")?.take(60).orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val url = args.string("url")?.trim()?.takeIf { it.isNotEmpty() } ?: return ToolResults.error("bad_arguments", "url is required.")
@@ -151,7 +152,7 @@ class OpenSettingsTool : Tool {
         string("app", "App name or package, for page = app.")
     }
 
-    override fun summary(args: JsonObject) = args.string("page")?.replace('_', ' ') ?: "settings"
+    override fun summary(args: JsonObject) = args.string("page")?.replace('_', ' ').orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val page = args.string("page") ?: return ToolResults.error("bad_arguments", "page is required.")

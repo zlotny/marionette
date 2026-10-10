@@ -22,11 +22,15 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
+data class Reasoning(val level: Thinking, val nested: Boolean)
+
 class OpenAiChatBackend(
     private val baseUrl: String,
     private val apiKey: String,
     private val model: String,
     private val sessionUser: String? = null,
+    private val reasoning: Reasoning? = null,
+    private val modelHeader: String? = null,
     private val client: OkHttpClient = Http.client,
 ) : LlmBackend {
 
@@ -70,18 +74,26 @@ class OpenAiChatBackend(
         }
     }
 
-    private fun authorized(builder: Request.Builder): Request.Builder =
-        if (apiKey.isBlank()) builder else builder.header("Authorization", "Bearer $apiKey")
+    private fun authorized(builder: Request.Builder): Request.Builder {
+        if (apiKey.isNotBlank()) builder.header("Authorization", "Bearer $apiKey")
+        modelHeader?.let { builder.header(MODEL_HEADER, it) }
+        return builder
+    }
 
     fun requestBody(system: String, messages: List<ChatMessage>, tools: List<ToolSpec>): JsonObject = buildJsonObject {
         put("model", model)
         put("stream", true)
         putJsonObject("stream_options") { put("include_usage", true) }
         sessionUser?.let { put("user", it) }
+        reasoning?.let {
+            if (it.nested) putJsonObject("reasoning") { put("effort", it.level.effort) } else put("reasoning_effort", it.level.effort)
+        }
         putJsonArray("messages") {
-            addJsonObject {
-                put("role", "system")
-                put("content", system)
+            if (system.isNotBlank()) {
+                addJsonObject {
+                    put("role", "system")
+                    put("content", system)
+                }
             }
             messages.forEach { message ->
                 when (message) {
@@ -192,6 +204,7 @@ class OpenAiChatBackend(
     }
 
     companion object {
+        const val MODEL_HEADER = "x-openclaw-model"
         private val JSON = "application/json".toMediaType()
     }
 }

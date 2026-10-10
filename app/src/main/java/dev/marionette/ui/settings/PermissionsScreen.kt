@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.ui.agentName
 import dev.marionette.access.Access
 import dev.marionette.ui.access.AccessList
 import dev.marionette.ui.access.rememberAccessState
@@ -26,7 +27,7 @@ fun PermissionsScreen(onBack: () -> Unit) {
     SettingsScaffold(title = stringResource(R.string.settings_permissions), onBack = onBack) {
         item {
             Text(
-                stringResource(R.string.permissions_intro),
+                stringResource(R.string.permissions_intro, agentName()),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),

@@ -35,7 +35,7 @@ class ReadNotificationsTool : Tool {
         boolean("include_silent", "Include ongoing and silent notifications such as media or navigation. Default false.")
     }
 
-    override fun summary(args: JsonObject) = args.string("app") ?: "all"
+    override fun summary(args: JsonObject) = args.string("app").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val (listener, error) = listenerOrError()
@@ -79,7 +79,7 @@ class ReplyNotificationTool : Tool {
         string("text", "Reply text.", required = true)
     }
 
-    override fun summary(args: JsonObject) = args.string("text")?.take(40) ?: "reply"
+    override fun summary(args: JsonObject) = args.string("text")?.take(40).orEmpty()
 
     override fun confirmationPrompt(args: JsonObject) = "Reply \"${args.string("text").orEmpty()}\"?"
 
@@ -109,7 +109,7 @@ class NotificationActionTool : Tool {
         string("action", "Button title as listed in actions.")
     }
 
-    override fun summary(args: JsonObject) = args.string("action") ?: "open"
+    override fun summary(args: JsonObject) = args.string("action").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val (listener, error) = listenerOrError()
@@ -138,7 +138,7 @@ class DismissNotificationTool : Tool {
         string("id", "Notification id, or all.", required = true)
     }
 
-    override fun summary(args: JsonObject) = args.string("id") ?: ""
+    override fun summary(args: JsonObject) = args.string("id").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val (listener, error) = listenerOrError()

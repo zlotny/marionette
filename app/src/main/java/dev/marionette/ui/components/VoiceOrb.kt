@@ -40,7 +40,7 @@ fun VoiceOrb(modifier: Modifier = Modifier, size: Dp = 160.dp, level: Float = 0f
                 .fillMaxSize()
                 .then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(size * 0.16f) else Modifier),
         ) {
-            val base = this.size.minDimension / 2 * 0.62f * breathe * (1f + energy * 0.22f) * presence
+            val base = this.size.minDimension / 2 * 0.42f * breathe * (1f + energy * 0.22f) * presence
             Brand.glowColors.forEachIndexed { i, color ->
                 val a = Math.toRadians((angle + i * 90.0) * if (i % 2 == 0) 1 else -1)
                 val r = base * (0.28f + energy * 0.18f)

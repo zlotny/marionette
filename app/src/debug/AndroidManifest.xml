@@ -9,7 +9,9 @@
             <intent-filter>
                 <action android:name="dev.marionette.DEBUG_COMMAND" />
                 <action android:name="dev.marionette.DEBUG_BACKEND" />
+                <action android:name="dev.marionette.DEBUG_KEY" />
                 <action android:name="dev.marionette.DEBUG_RESET" />
+                <action android:name="dev.marionette.DEBUG_AUDIO" />
                 <action android:name="dev.marionette.DEBUG_CONFIRM" />
             </intent-filter>
         </receiver>

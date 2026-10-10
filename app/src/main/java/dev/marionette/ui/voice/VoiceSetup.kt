@@ -2,6 +2,7 @@ package dev.marionette.ui.voice
 
 import android.content.Context
 import android.content.res.Configuration
+import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Replay
@@ -59,13 +61,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.R
+import dev.marionette.ui.agentName
 import dev.marionette.settings.Languages
 import dev.marionette.ui.components.VoiceOrb
 import dev.marionette.ui.components.Waveform
+import dev.marionette.voice.CloudVoice
 import dev.marionette.voice.Speaker
 import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoicePhase
 import dev.marionette.voice.VoiceService
+import dev.marionette.voice.wake.WakeTemplates
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -80,10 +85,13 @@ fun rememberSpeaker(): Speaker {
     return speaker
 }
 
-fun localizedString(context: Context, language: String, id: Int): String {
+fun localizedResources(context: Context, language: String): Resources {
     val config = Configuration(context.resources.configuration).apply { setLocale(Languages.locale(language)) }
-    return context.createConfigurationContext(config).getString(id)
+    return context.createConfigurationContext(config).resources
 }
+
+fun localizedString(context: Context, language: String, id: Int, vararg args: Any): String =
+    localizedResources(context, language).getString(id, *args)
 
 @Composable
 fun languageOptions(): List<Pair<String, String>> = Languages.supported.map { tag ->
@@ -91,10 +99,11 @@ fun languageOptions(): List<Pair<String, String>> = Languages.supported.map { ta
 }
 
 @Composable
-fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modifier = Modifier) {
+fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modifier = Modifier, cloud: CloudVoice? = null) {
     val context = LocalContext.current
     val speaker = rememberSpeaker()
     val scope = rememberCoroutineScope()
+    val name = agentName()
     var speaking by remember { mutableStateOf(false) }
     FilledTonalButton(
         onClick = {
@@ -104,7 +113,7 @@ fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modi
                 scope.launch {
                     speaking = true
                     try {
-                        speaker.speak(localizedString(context, language, R.string.voice_test_phrase), language, voice, rate)
+                        speaker.speak(localizedString(context, language, R.string.voice_test_phrase, name), language, voice, rate, cloud)
                     } finally {
                         speaking = false
                     }
@@ -126,15 +135,11 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
     var phrase by rememberSaveable { mutableStateOf(savedPhrase) }
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
     val enrolling = voice.phase == VoicePhase.ENROLLING
-    var started by rememberSaveable { mutableStateOf(false) }
+    var appending by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
-
-    LaunchedEffect(enrolling, voice.enrolledPhrases) {
-        if (enrolling) started = true
-        if (enrolling && voice.enrolledPhrases >= ENROLL_TARGET) {
-            saving = true
-            VoiceService.send(context, VoiceService.ACTION_ENROLL_FINISH)
-        }
+    val record: (Boolean) -> Unit = { append ->
+        appending = append
+        VoiceService.enroll(context, append)
     }
     LaunchedEffect(voice.phase) {
         if (voice.phase != VoicePhase.ENROLLING) saving = false
@@ -152,7 +157,7 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                     onPhrase(it.trim())
                 },
                 label = { Text(stringResource(R.string.wake_phrase)) },
-                placeholder = { Text(stringResource(R.string.wake_phrase_hint)) },
+                placeholder = { Text(stringResource(R.string.wake_phrase_hint, agentName())) },
                 singleLine = true,
                 enabled = !enrolling,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
@@ -175,7 +180,7 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Button(
-                            onClick = { VoiceService.send(context, VoiceService.ACTION_ENROLL_START) },
+                            onClick = { record(false) },
                             enabled = phrase.isNotBlank(),
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                         ) {
@@ -187,6 +192,7 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                     EnrollStage.RECORDING -> Recording(
                         phrase = phrase,
                         count = voice.enrolledPhrases,
+                        minimum = if (appending) 1 else ENROLL_MINIMUM,
                         level = voice.level,
                         saving = saving,
                         onFinish = {
@@ -199,7 +205,8 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                         lastWakeAt = voice.lastWakeAt,
                         armed = voice.wakeArmed,
                         templates = voice.templateCount,
-                        onRecordAgain = { VoiceService.send(context, VoiceService.ACTION_ENROLL_START) },
+                        onAddMore = { record(true) },
+                        onRecordAgain = { record(false) },
                     )
                 }
             }
@@ -211,7 +218,7 @@ private enum class EnrollStage { IDLE, RECORDING, READY }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun Recording(phrase: String, count: Int, level: Float, saving: Boolean, onFinish: () -> Unit, onCancel: () -> Unit) {
+private fun Recording(phrase: String, count: Int, minimum: Int, level: Float, saving: Boolean, onFinish: () -> Unit, onCancel: () -> Unit) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (saving) {
             LoadingIndicator(Modifier.size(64.dp))
@@ -228,15 +235,20 @@ private fun Recording(phrase: String, count: Int, level: Float, saving: Boolean,
             repeat(ENROLL_TARGET) { i -> ProgressDot(done = i < count) }
         }
         Text(
-            stringResource(R.string.wake_count, count.coerceAtMost(ENROLL_TARGET), ENROLL_TARGET),
+            if (count < ENROLL_TARGET) stringResource(R.string.wake_count, count, ENROLL_TARGET) else stringResource(R.string.wake_count_extra, count),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
         Waveform(level)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onCancel) { Text(stringResource(R.string.action_cancel)) }
             Spacer(Modifier.size(8.dp))
-            FilledTonalButton(onClick = onFinish, enabled = count >= ENROLL_MINIMUM) { Text(stringResource(R.string.wake_finish)) }
+            if (count >= ENROLL_TARGET) {
+                Button(onClick = onFinish) { Text(stringResource(R.string.wake_finish)) }
+            } else {
+                FilledTonalButton(onClick = onFinish, enabled = count >= minimum) { Text(stringResource(R.string.wake_finish)) }
+            }
         }
     }
 }
@@ -252,7 +264,7 @@ private fun ProgressDot(done: Boolean) {
 }
 
 @Composable
-private fun WakeTest(lastWakeAt: Long, armed: Boolean, templates: Int, onRecordAgain: () -> Unit) {
+private fun WakeTest(lastWakeAt: Long, armed: Boolean, templates: Int, onAddMore: () -> Unit, onRecordAgain: () -> Unit) {
     val context = LocalContext.current
     val since = remember { mutableLongStateOf(System.currentTimeMillis()) }
     var heard by remember { mutableStateOf(false) }
@@ -295,10 +307,19 @@ private fun WakeTest(lastWakeAt: Long, armed: Boolean, templates: Int, onRecordA
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = onRecordAgain) {
-            Icon(Icons.Rounded.Replay, null, Modifier.size(18.dp))
-            Spacer(Modifier.size(8.dp))
-            Text(stringResource(R.string.wake_record_again))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (templates < WakeTemplates.MAX_TEMPLATES) {
+                FilledTonalButton(onClick = onAddMore) {
+                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.wake_add_more))
+                }
+            }
+            TextButton(onClick = onRecordAgain) {
+                Icon(Icons.Rounded.Replay, null, Modifier.size(18.dp))
+                Spacer(Modifier.size(8.dp))
+                Text(stringResource(R.string.wake_record_again))
+            }
         }
     }
 }

@@ -68,7 +68,7 @@ class SearchContactsTool : Tool {
         integer("limit", "Maximum results. Default 8.")
     }
 
-    override fun summary(args: JsonObject) = args.string("query") ?: "contacts"
+    override fun summary(args: JsonObject) = args.string("query").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val query = args.string("query")?.takeIf { it.isNotBlank() } ?: return ToolResults.error("bad_arguments", "query is required.")
@@ -91,7 +91,7 @@ class CallTool : Tool {
         string("name", "Contact name, for the confirmation and logs.")
     }
 
-    override fun summary(args: JsonObject) = args.string("name") ?: args.string("number") ?: "call"
+    override fun summary(args: JsonObject) = args.string("name") ?: args.string("number").orEmpty()
 
     override fun confirmationPrompt(args: JsonObject) = "Call ${summary(args)}?"
 
@@ -99,11 +99,14 @@ class CallTool : Tool {
         val number = args.string("number")?.filter { it.isDigit() || it == '+' || it == '*' || it == '#' }?.takeIf { it.isNotEmpty() }
             ?: return ToolResults.error("bad_arguments", "number is required.")
         val intent = Intent(Intent.ACTION_CALL, Uri.fromParts("tel", number, null))
+        ctx.playback.stayPaused()
         return when (ctx.launcher.launch(intent, "call", unlock = false)) {
             LaunchStatus.FAILED -> ToolResults.error("call_failed", "The call could not start.")
             else -> ToolResults.ok("status" to "calling", "number" to number)
         }
     }
+
+    override fun silencesTurn(args: JsonObject, result: JsonObject) = !result.isError()
 }
 
 class SendSmsTool : Tool {
@@ -118,7 +121,7 @@ class SendSmsTool : Tool {
         string("name", "Contact name, for the confirmation and logs.")
     }
 
-    override fun summary(args: JsonObject) = args.string("name") ?: args.string("number") ?: "SMS"
+    override fun summary(args: JsonObject) = args.string("name") ?: args.string("number").orEmpty()
 
     override fun confirmationPrompt(args: JsonObject) = "Send \"${args.string("text").orEmpty()}\" to ${summary(args)}?"
 

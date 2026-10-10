@@ -12,5 +12,5 @@ fun Response.toLlmException(): LlmException {
         ?: json["error"].text()
         ?: json["message"].text()
         ?: body.take(300).ifBlank { message }
-    return LlmException(code, message)
+    return LlmException(code, message, header("Retry-After")?.trim()?.toLongOrNull())
 }

@@ -1,9 +1,14 @@
 package dev.marionette.agent
 
 import android.content.Context
+import dev.marionette.settings.AppSettings
 
-class SystemPrompt(context: Context) {
-    private val template: String = context.assets.open("prompts/system.md").bufferedReader().use { it.readText() }
+class SystemPrompt(val defaultInstructions: String) {
+    constructor(context: Context) : this(context.assets.open("prompts/system.md").bufferedReader().use { it.readText() }.trim())
 
-    fun render(contextBlock: String): String = template.replace("{{context}}", contextBlock)
+    fun build(settings: AppSettings, contextBlock: String): String = listOfNotNull(
+        settings.instructions.ifBlank { defaultInstructions }.replace("{{name}}", settings.agentName)
+            .takeIf { settings.sendInstructions && !settings.provider.isAgent },
+        "Phone context:\n$contextBlock".takeIf { settings.sendContext && contextBlock.isNotBlank() },
+    ).joinToString("\n\n")
 }

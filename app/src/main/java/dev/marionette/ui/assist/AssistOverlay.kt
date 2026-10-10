@@ -1,5 +1,6 @@
 package dev.marionette.ui.assist
 
+import dev.marionette.ui.components.TranscriptText
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.MutableTransitionState
@@ -97,11 +98,10 @@ fun AssistOverlay(sinceTurnId: Long, onTalk: () -> Unit, onDismiss: () -> Unit) 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         VoiceOrb(size = 56.dp, level = voice.level, active = voice.phase != VoicePhase.WAITING)
                         Spacer(Modifier.size(16.dp))
-                        Text(
+                        TranscriptText(
                             statusText(voice.phase, voice.partial, turn?.input),
                             style = MaterialTheme.typography.titleLarge,
                             maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
                     }

@@ -32,6 +32,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.ui.agentName
 import dev.marionette.access.Access
 import dev.marionette.settings.AppSettings
 import dev.marionette.ui.access.AccessList
@@ -58,12 +64,15 @@ import dev.marionette.voice.VoicePhase
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.ui.platform.LocalContext
-import dev.marionette.ui.settings.BackendFormContent
+import dev.marionette.ui.settings.BackendSetup
+import dev.marionette.ui.settings.ProviderPicker
+import dev.marionette.ui.settings.actions
+import androidx.compose.runtime.remember
 import dev.marionette.ui.settings.BackendViewModel
 import dev.marionette.ui.theme.Brand
 import kotlinx.coroutines.launch
 
-enum class OnboardingStep { WELCOME, BACKEND, PERMISSIONS, VOICE, WAKE, DONE }
+enum class OnboardingStep { WELCOME, NAME, PROVIDER, BACKEND, PERMISSIONS, VOICE, WAKE, DONE }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -71,6 +80,7 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
     var index by rememberSaveable { mutableIntStateOf(0) }
     val step = OnboardingStep.entries[index]
     val form by backend.form.collectAsStateWithLifecycle()
+    val backendActions = remember(backend) { backend.actions() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val settings by MarionetteApp.graph.settings.settings.collectAsStateWithLifecycle()
@@ -79,7 +89,9 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
     BackHandler(enabled = index > 0) { index-- }
 
     val accesses = Access.relevant(context, settings)
+    var name by rememberSaveable { mutableStateOf(settings.agentName) }
     val canContinue = when (step) {
+        OnboardingStep.NAME -> name.isNotBlank()
         OnboardingStep.BACKEND -> form.passed
         OnboardingStep.PERMISSIONS -> accesses.filter { it.essential }.all(access::isGranted)
         OnboardingStep.WAKE -> voice.phase != VoicePhase.ENROLLING
@@ -119,17 +131,28 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
             ) {
                 when (current) {
                     OnboardingStep.WELCOME -> Hero(R.string.onboarding_welcome_title, R.string.onboarding_welcome_body)
-                    OnboardingStep.BACKEND -> {
-                        StepHeader(R.string.onboarding_backend_title, R.string.onboarding_backend_body)
-                        BackendFormContent(
-                            form = form,
-                            onProvider = backend::selectProvider,
-                            onBaseUrl = backend::setBaseUrl,
-                            onApiKey = backend::setApiKey,
-                            onModel = backend::setModel,
-                            onLoadModels = backend::loadModels,
-                            onTest = backend::test,
+                    OnboardingStep.NAME -> {
+                        StepHeader(R.string.onboarding_name_title, R.string.onboarding_name_body)
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { value ->
+                                name = value.take(AppSettings.MAX_AGENT_NAME)
+                                name.trim().takeIf { it.isNotEmpty() }?.let { trimmed -> update { it.copy(agentName = trimmed) } }
+                            },
+                            label = { Text(stringResource(R.string.agent_name_label)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                            modifier = Modifier.fillMaxWidth(),
                         )
+                    }
+                    OnboardingStep.PROVIDER -> {
+                        StepHeader(R.string.onboarding_provider_title, R.string.onboarding_provider_body)
+                        ProviderPicker(form.provider, backend::selectProvider)
+                    }
+                    OnboardingStep.BACKEND -> {
+                        Text(stringResource(R.string.onboarding_backend_title, form.provider.title), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(24.dp))
+                        BackendSetup(form, backendActions)
                     }
                     OnboardingStep.PERMISSIONS -> {
                         StepHeader(R.string.onboarding_permissions_title, R.string.onboarding_permissions_body)
@@ -193,6 +216,7 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
                             OnboardingStep.WAKE -> if (voice.templateCount > 0) R.string.action_continue else R.string.action_skip
                             else -> R.string.action_continue
                         },
+                        agentName(),
                     ),
                     style = MaterialTheme.typography.titleMedium,
                 )
@@ -207,12 +231,12 @@ private fun Hero(title: Int, body: Int) {
         VoiceOrb(size = 180.dp)
         Spacer(Modifier.height(40.dp))
         Text(
-            stringResource(title),
+            stringResource(title, agentName()),
             style = MaterialTheme.typography.displaySmall.copy(brush = Brand.textBrush()),
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            stringResource(body),
+            stringResource(body, agentName()),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -222,8 +246,8 @@ private fun Hero(title: Int, body: Int) {
 
 @Composable
 fun StepHeader(title: Int, body: Int) {
-    Text(stringResource(title), style = MaterialTheme.typography.headlineMedium)
+    Text(stringResource(title, agentName()), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
     Spacer(Modifier.height(8.dp))
-    Text(stringResource(body), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(stringResource(body, agentName()), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(24.dp))
 }

@@ -1,11 +1,16 @@
 package dev.marionette.ui.settings
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DataObject
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.TouchApp
@@ -14,20 +19,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.BuildConfig
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.ui.agentName
 import dev.marionette.access.Access
+import dev.marionette.settings.AppSettings
 import dev.marionette.settings.Languages
 import dev.marionette.settings.SttEngine
+import dev.marionette.settings.TtsEngine
 import dev.marionette.ui.ActivityRoute
 import dev.marionette.ui.access.rememberAccessState
 import dev.marionette.ui.components.SettingsGroup
 import dev.marionette.ui.components.SettingsIcon
 import dev.marionette.ui.components.SettingsRow
 import dev.marionette.ui.components.SettingsScaffold
+import dev.marionette.ui.components.TextRow
 import dev.marionette.voice.VoiceBus
 
 @Composable
@@ -49,6 +59,17 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
         item {
             SettingsGroup(stringResource(R.string.settings_group_assistant)) {
                 item { i, n ->
+                    TextRow(
+                        i, n,
+                        headline = stringResource(R.string.settings_agent_name),
+                        value = settings.agentName,
+                        label = stringResource(R.string.agent_name_label),
+                        maxLength = AppSettings.MAX_AGENT_NAME,
+                        leading = { SettingsIcon(Icons.Rounded.Badge) },
+                        onSave = { name -> if (name.isNotBlank()) updateSettings { it.copy(agentName = name) } },
+                    )
+                }
+                item { i, n ->
                     SettingsRow(
                         i, n,
                         headline = stringResource(R.string.settings_backend),
@@ -57,6 +78,33 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
                         onClick = { onOpen(SettingsNavigation.Backend) },
                     )
                 }
+                item { i, n ->
+                    SettingsRow(
+                        i, n,
+                        headline = stringResource(R.string.settings_instructions),
+                        supporting = when {
+                            settings.provider.isAgent -> stringResource(R.string.instructions_summary_agent)
+                            !settings.sendInstructions -> off
+                            settings.instructions.isBlank() -> stringResource(R.string.instructions_summary_default)
+                            else -> stringResource(R.string.instructions_summary_custom)
+                        },
+                        leading = { SettingsIcon(Icons.Rounded.Description) },
+                        onClick = { onOpen(SettingsNavigation.Instructions) },
+                    )
+                }
+                item { i, n ->
+                    SettingsRow(
+                        i, n,
+                        headline = stringResource(R.string.settings_context),
+                        supporting = stringResource(R.string.settings_context_summary, settings.contextFields.size),
+                        leading = { SettingsIcon(Icons.Rounded.DataObject) },
+                        onClick = { onOpen(SettingsNavigation.Context) },
+                    )
+                }
+            }
+        }
+        item {
+            SettingsGroup(stringResource(R.string.settings_group_voice)) {
                 item { i, n ->
                     SettingsRow(
                         i, n,
@@ -73,22 +121,38 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
                 item { i, n ->
                     SettingsRow(
                         i, n,
-                        headline = stringResource(R.string.settings_voice),
+                        headline = stringResource(R.string.voice_group_recognition),
                         supporting = listOf(
                             if (settings.language.isBlank()) stringResource(R.string.voice_language_system) else Languages.displayName(settings.language),
-                            stringResource(if (settings.sttEngine == SttEngine.OPENAI_CLOUD) R.string.voice_engine_openai else R.string.voice_engine_device),
+                            stringResource(if (settings.sttEngine == SttEngine.CLOUD) R.string.voice_engine_cloud else R.string.voice_engine_device),
                         ).joinToString(" · "),
                         leading = { SettingsIcon(Icons.Rounded.Translate) },
-                        onClick = { onOpen(SettingsNavigation.Voice) },
+                        onClick = { onOpen(SettingsNavigation.Recognition) },
                     )
                 }
                 item { i, n ->
                     SettingsRow(
                         i, n,
-                        headline = stringResource(R.string.settings_context),
-                        supporting = stringResource(R.string.settings_context_summary, settings.contextFields.size),
-                        leading = { SettingsIcon(Icons.Rounded.DataObject) },
-                        onClick = { onOpen(SettingsNavigation.Context) },
+                        headline = stringResource(R.string.voice_group_speech),
+                        supporting = listOf(
+                            if (settings.ttsEngine == TtsEngine.CLOUD) settings.ttsCloud.title else stringResource(R.string.voice_speech_system),
+                            "%.1f×".format(settings.speechRate),
+                        ).joinToString(" · "),
+                        leading = { SettingsIcon(Icons.Rounded.GraphicEq) },
+                        onClick = { onOpen(SettingsNavigation.Speech) },
+                    )
+                }
+                item { i, n ->
+                    SettingsRow(
+                        i, n,
+                        headline = stringResource(R.string.voice_group_conversation),
+                        supporting = stringResource(
+                            R.string.settings_conversation_summary,
+                            if (settings.followUpSeconds == 0) off else stringResource(R.string.unit_s, settings.followUpSeconds),
+                            if (settings.earcons) stringResource(R.string.voice_earcons) else off,
+                        ),
+                        leading = { SettingsIcon(Icons.Rounded.Forum) },
+                        onClick = { onOpen(SettingsNavigation.Conversation) },
                     )
                 }
             }
@@ -135,12 +199,25 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
             }
         }
         item {
+            SettingsGroup(stringResource(R.string.settings_group_accounts)) {
+                item { i, n ->
+                    SettingsRow(
+                        i, n,
+                        headline = stringResource(R.string.settings_credentials),
+                        supporting = pluralStringResource(R.plurals.settings_credentials_summary, settings.credentials.size, settings.credentials.size),
+                        leading = { SettingsIcon(Icons.Rounded.Key) },
+                        onClick = { onOpen(SettingsNavigation.Credentials) },
+                    )
+                }
+            }
+        }
+        item {
             SettingsGroup(stringResource(R.string.settings_group_history)) {
                 item { i, n ->
                     SettingsRow(
                         i, n,
                         headline = stringResource(R.string.activity_title),
-                        supporting = stringResource(R.string.settings_activity_summary),
+                        supporting = stringResource(R.string.settings_activity_summary, agentName()),
                         leading = { SettingsIcon(Icons.Rounded.History) },
                         onClick = { onOpen(ActivityRoute) },
                     )

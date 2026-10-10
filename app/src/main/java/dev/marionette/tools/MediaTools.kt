@@ -1,15 +1,20 @@
 package dev.marionette.tools
 
 import android.content.Intent
+import android.net.Uri
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
-import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.os.Bundle
 import android.provider.MediaStore
+import dev.marionette.core.Logger
 import dev.marionette.core.string
 import dev.marionette.launch.LaunchStatus
-import dev.marionette.notifications.MarionetteNotificationListener
+import dev.marionette.media.MediaSessions
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
 class MediaControlTool : Tool {
@@ -23,32 +28,46 @@ class MediaControlTool : Tool {
         string("app", "App name or package when several are playing.")
     }
 
-    override fun summary(args: JsonObject) = args.string("action") ?: "media"
+    override fun summary(args: JsonObject) = args.string("action").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val action = args.string("action") ?: return ToolResults.error("bad_arguments", "action is required.")
         val controller = pickController(ctx, args.string("app"))
+        val held = ctx.playback.isHeld(controller?.packageName)
         if (controller == null) {
-            if (action == "status") return ToolResults.ok("playing" to false, "message" to "Nothing is playing.")
-            return fallbackKey(ctx, action)
+            if (action == "status") {
+                return if (held) ToolResults.ok("state" to "playing") else ToolResults.ok("playing" to false, "message" to "Nothing is playing.")
+            }
+            return fallbackKey(ctx, if (held) effective(action, true) else action)
         }
-        val playing = controller.playbackState?.state == PlaybackState.STATE_PLAYING
+        val playing = held || controller.playbackState?.state == PlaybackState.STATE_PLAYING
         val controls = controller.transportControls
-        when (action) {
-            "play" -> controls.play()
-            "pause" -> controls.pause()
-            "toggle" -> if (playing) controls.pause() else controls.play()
-            "next" -> controls.skipToNext()
-            "previous" -> controls.skipToPrevious()
-            "stop" -> controls.stop()
+        when (val effective = effective(action, playing)) {
+            "pause", "stop" -> {
+                ctx.playback.stayPaused()
+                if (effective == "pause") controls.pause() else controls.stop()
+            }
+            "play", "next", "previous" -> {
+                ctx.playback.handOver()
+                when (effective) {
+                    "next" -> controls.skipToNext()
+                    "previous" -> controls.skipToPrevious()
+                }
+                if (effective == "play" || held) controls.play()
+            }
         }
-        return ToolResults.ok("app" to controller.packageName, *describe(controller).toList().toTypedArray())
+        val state = describe(controller).toMutableMap()
+        if (action == "status" && held) state["state"] = "playing"
+        return ToolResults.ok("app" to controller.packageName, *state.toList().toTypedArray())
     }
 
+    override fun silencesTurn(args: JsonObject, result: JsonObject): Boolean =
+        !result.isError() && args.string("action") in listOf("play", "next", "previous", "toggle") && result.string("state") != "paused"
+
+    private fun effective(action: String, playing: Boolean) = if (action == "toggle") (if (playing) "pause" else "play") else action
+
     private fun pickController(ctx: ToolContext, app: String?): MediaController? {
-        if (MarionetteNotificationListener.instance == null) return null
-        val manager = ctx.context.getSystemService(MediaSessionManager::class.java)
-        val sessions = runCatching { manager.getActiveSessions(MarionetteNotificationListener.component(ctx.context)) }.getOrNull().orEmpty()
+        val sessions = MediaSessions.active(ctx.context)
         if (app != null) {
             val packages = InstalledApps.match(InstalledApps.list(ctx.context.packageManager), app).map { it.packageName }.toSet()
             sessions.firstOrNull { it.packageName in packages }?.let { return it }
@@ -81,6 +100,10 @@ class MediaControlTool : Tool {
             "previous" -> android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
             else -> android.view.KeyEvent.KEYCODE_MEDIA_STOP
         }
+        when (action) {
+            "pause", "stop" -> ctx.playback.stayPaused()
+            "play", "next", "previous" -> ctx.playback.handOver()
+        }
         val audio = ctx.context.getSystemService(AudioManager::class.java)
         audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code))
         audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code))
@@ -89,13 +112,21 @@ class MediaControlTool : Tool {
 }
 
 class PlayMediaTool : Tool {
+    private val searchFails = ConcurrentHashMap.newKeySet<String>()
+
     override val name = "play_media"
     override val category = ToolCategory.MEDIA
     override val description =
         "Search and play music or podcasts in a media app, e.g. an artist, song, album, playlist or genre. " +
-            "For Spotify, open_url with a spotify: URI is an alternative."
+            "Some apps ignore search requests, so if you can look up a direct link to a song or playlist, pass it as url " +
+            "(https://music.youtube.com/watch?v=VIDEO_ID, a spotify: URI). The result says whether playback really started."
     override val parameters = schema {
-        string("query", "What to play.", required = true)
+        string("query", "What to play.")
+        string(
+            "url",
+            "Direct link to a song, album or playlist. Plays it instead of searching. " +
+                "For a YouTube Music album or playlist, link its first track with the list (watch?v=VIDEO_ID&list=LIST_ID): it plays with the phone locked.",
+        )
         string("kind", "Type of request.", enum = listOf("any", "artist", "album", "song", "playlist", "genre"))
         string("app", "App name or package, e.g. Spotify or YouTube Music.")
     }
@@ -103,24 +134,148 @@ class PlayMediaTool : Tool {
     override fun summary(args: JsonObject) = listOfNotNull(args.string("query"), args.string("app")?.let { "in $it" }).joinToString(" ")
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
-        val query = args.string("query")?.takeIf { it.isNotBlank() } ?: return ToolResults.error("bad_arguments", "query is required.")
-        val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).putExtra(android.app.SearchManager.QUERY, query)
-        when (args.string("kind")) {
-            "artist" -> intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE).putExtra(MediaStore.EXTRA_MEDIA_ARTIST, query)
-            "album" -> intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Albums.ENTRY_CONTENT_TYPE).putExtra(MediaStore.EXTRA_MEDIA_ALBUM, query)
-            "song" -> intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio").putExtra(MediaStore.EXTRA_MEDIA_TITLE, query)
-            "playlist" -> intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Playlists.ENTRY_CONTENT_TYPE).putExtra("android.intent.extra.playlist", query)
-            "genre" -> intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Genres.ENTRY_CONTENT_TYPE).putExtra("android.intent.extra.genre", query)
-        }
-        args.string("app")?.takeIf { it.isNotBlank() }?.let { app ->
-            val pkg = InstalledApps.match(InstalledApps.list(ctx.context.packageManager), app).firstOrNull()?.packageName
+        val url = args.string("url")?.trim()?.takeIf { it.isNotEmpty() }
+        val query = args.string("query")?.takeIf { it.isNotBlank() } ?: url ?: return ToolResults.error("bad_arguments", "query or url is required.")
+        val extras = searchExtras(query, args.string("kind"))
+        val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).putExtra(android.app.SearchManager.QUERY, query).putExtras(extras)
+        val app = args.string("app")?.takeIf { it.isNotBlank() }
+        val pkg = if (app != null) {
+            InstalledApps.match(InstalledApps.list(ctx.context.packageManager), app).firstOrNull()?.packageName
                 ?: return ToolResults.error("not_installed", "No installed app matches \"$app\".")
-            intent.setPackage(pkg)
+        } else {
+            MediaSessions.active(ctx.context).firstOrNull()?.packageName ?: intent.resolveActivity(ctx.context.packageManager)?.packageName
+        } ?: return ToolResults.error("no_handler", "No media app handles play requests.")
+        intent.setPackage(pkg)
+        if (url != null) return playUrl(ctx, pkg, url)
+        if (!MediaSessions.available()) return launchOnly(intent, query, ctx)
+        if (pkg in searchFails) return notPlaying(ctx, "This app does not play search requests.")
+
+        var controller = session(ctx, pkg)
+        val before = controller?.let { Snapshot(it) }
+        if (controller == null) {
+            if (ctx.launcher.launch(intent, "play $query", unlock = false) == LaunchStatus.FAILED) {
+                return ToolResults.error("launch_failed", "The media app did not start.")
+            }
+            controller = awaitSession(ctx, pkg)
+            controller?.let { if (startedSince(it, before)) return playing(ctx, it) }
         }
+        if (controller == null) return notPlaying(ctx, "The app opened but has no media session.")
+        controller.transportControls.playFromSearch(query, extras)
+        if (awaitStart(controller, before)) return playing(ctx, controller)
+        searchFails += pkg
+        return notPlaying(ctx, "The app did not start playback for this search.")
+    }
+
+    override fun silencesTurn(args: JsonObject, result: JsonObject) = result.string("status") in listOf("playing", "requested")
+
+    private suspend fun playUrl(ctx: ToolContext, pkg: String, url: String): JsonObject {
+        val uri = Uri.parse(url)
+        val controller = session(ctx, pkg)
+        val before = controller?.let { Snapshot(it) }
+        if (controller != null) {
+            controller.transportControls.playFromUri(uri, Bundle())
+            if (awaitStart(controller, before)) return playing(ctx, controller)
+            Logger.i("playFromUri did not start $url in ${pkg}: ${controller.playbackState}")
+        }
+        val view = Intent(Intent.ACTION_VIEW, uri).setPackage(pkg)
+        if (view.resolveActivity(ctx.context.packageManager) == null) return ToolResults.error("no_handler", "The app cannot open $url.")
+        val status = ctx.launcher.launch(view, url)
+        if (status == LaunchStatus.WAITING_FOR_UNLOCK) ctx.playback.stayPaused()
+        if (status != LaunchStatus.STARTED) return launchResult(status, "The link")
+        val opened = controller ?: awaitSession(ctx, pkg)
+        if (opened != null && awaitStart(opened, before)) return playing(ctx, opened)
+        ctx.playback.stayPaused()
+        return ToolResults.error("not_playing", "The link opened but playback did not start.")
+    }
+
+    private suspend fun launchOnly(intent: Intent, query: String, ctx: ToolContext): JsonObject {
         if (intent.resolveActivity(ctx.context.packageManager) == null) return ToolResults.error("no_handler", "No media app handles play requests.")
+        ctx.playback.handOver()
         return when (ctx.launcher.launch(intent, "play $query", unlock = false)) {
             LaunchStatus.FAILED -> ToolResults.error("launch_failed", "The media app did not start.")
-            else -> ToolResults.ok("status" to "requested", "query" to query)
+            else -> ToolResults.ok("status" to "requested", "query" to query, "message" to "Playback cannot be confirmed without notification access.")
         }
+    }
+
+    private fun playing(ctx: ToolContext, controller: MediaController): JsonObject {
+        ctx.playback.handOver()
+        val meta = controller.metadata
+        return ToolResults.ok(
+            "status" to "playing",
+            "app" to controller.packageName,
+            "title" to meta?.getString(MediaMetadata.METADATA_KEY_TITLE),
+            "artist" to meta?.getString(MediaMetadata.METADATA_KEY_ARTIST),
+        )
+    }
+
+    private fun notPlaying(ctx: ToolContext, reason: String): JsonObject {
+        ctx.playback.stayPaused()
+        return ToolResults.error(
+            "not_playing",
+            "$reason Find a specific song or playlist and call play_media again with url set to its direct link, " +
+                "for example https://music.youtube.com/watch?v=VIDEO_ID.",
+        )
+    }
+
+    private fun session(ctx: ToolContext, pkg: String) = MediaSessions.active(ctx.context).firstOrNull { it.packageName == pkg }
+
+    private suspend fun awaitSession(ctx: ToolContext, pkg: String): MediaController? =
+        withTimeoutOrNull(SESSION_WAIT_MILLIS) {
+            var found = session(ctx, pkg)
+            while (found == null) {
+                delay(POLL_MILLIS)
+                found = session(ctx, pkg)
+            }
+            found
+        }
+
+    private suspend fun awaitStart(controller: MediaController, before: Snapshot?): Boolean =
+        withTimeoutOrNull(START_WAIT_MILLIS) {
+            while (!startedSince(controller, before)) delay(POLL_MILLIS)
+            true
+        } ?: false
+
+    private fun startedSince(controller: MediaController, before: Snapshot?): Boolean {
+        val now = Snapshot(controller)
+        val changed = before == null || now.title != before.title
+        return (now.playing && (changed || !before!!.playing)) || (now.loading && changed)
+    }
+
+    private class Snapshot(controller: MediaController) {
+        val playing = controller.playbackState?.state == PlaybackState.STATE_PLAYING
+        val loading = controller.playbackState?.state in LOADING_STATES
+        val title = controller.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
+    }
+
+    private fun searchExtras(query: String, kind: String?): Bundle = Bundle().apply {
+        when (kind) {
+            "artist" -> {
+                putString(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE)
+                putString(MediaStore.EXTRA_MEDIA_ARTIST, query)
+            }
+            "album" -> {
+                putString(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Albums.ENTRY_CONTENT_TYPE)
+                putString(MediaStore.EXTRA_MEDIA_ALBUM, query)
+            }
+            "song" -> {
+                putString(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio")
+                putString(MediaStore.EXTRA_MEDIA_TITLE, query)
+            }
+            "playlist" -> {
+                putString(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Playlists.ENTRY_CONTENT_TYPE)
+                putString("android.intent.extra.playlist", query)
+            }
+            "genre" -> {
+                putString(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Genres.ENTRY_CONTENT_TYPE)
+                putString("android.intent.extra.genre", query)
+            }
+        }
+    }
+
+    companion object {
+        private const val SESSION_WAIT_MILLIS = 5_000L
+        private const val START_WAIT_MILLIS = 10_000L
+        private val LOADING_STATES = setOf(PlaybackState.STATE_BUFFERING, PlaybackState.STATE_CONNECTING, PlaybackState.STATE_SKIPPING_TO_QUEUE_ITEM)
+        private const val POLL_MILLIS = 250L
     }
 }

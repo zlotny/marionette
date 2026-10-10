@@ -52,7 +52,7 @@ class SetAlarmTool : Tool {
         stringArray("days", "Repeat days: mon, tue, wed, thu, fri, sat, sun. Omit for a one-time alarm.")
     }
 
-    override fun summary(args: JsonObject) = args.string("time") ?: "alarm"
+    override fun summary(args: JsonObject) = args.string("time").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val match = Regex("""^(\d{1,2}):(\d{2})$""").find(args.string("time").orEmpty().trim())

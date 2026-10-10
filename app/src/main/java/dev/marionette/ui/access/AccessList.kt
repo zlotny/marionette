@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import dev.marionette.R
+import dev.marionette.ui.agentName
 import dev.marionette.access.Access
 import dev.marionette.access.AccessKind
 import dev.marionette.ui.components.SettingsGroup
@@ -75,7 +76,7 @@ private fun AccessRow(index: Int, count: Int, access: Access, state: AccessState
     val supporting = if (!ready) {
         stringResource(R.string.access_requires, stringResource(access.requires!!.presentation.title))
     } else {
-        stringResource(p.body)
+        stringResource(p.body, agentName())
     }
     SettingsRow(
         index, count,

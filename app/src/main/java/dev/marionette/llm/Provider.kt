@@ -9,12 +9,14 @@ enum class Provider(
     val keyRequired: Boolean,
     val baseUrlEditable: Boolean,
     val suggestedModel: String,
+    val keyUrl: String? = null,
+    val isAgent: Boolean = false,
 ) {
-    OPENAI("OpenAI", "https://api.openai.com/v1", ApiStyle.OPENAI_CHAT, true, false, ""),
-    ANTHROPIC("Anthropic", "https://api.anthropic.com/v1", ApiStyle.ANTHROPIC, true, false, "claude-haiku-5-5"),
-    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", ApiStyle.OPENAI_CHAT, true, false, ""),
-    GEMINI("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", ApiStyle.OPENAI_CHAT, true, false, ""),
-    OPENCLAW("OpenClaw", "http://10.0.2.2:18789/v1", ApiStyle.OPENAI_CHAT, true, true, "openclaw/default"),
+    OPENCLAW("OpenClaw", "", ApiStyle.OPENAI_CHAT, false, true, "openclaw/default", isAgent = true),
+    OPENAI("OpenAI", "https://api.openai.com/v1", ApiStyle.OPENAI_CHAT, true, false, "", "https://platform.openai.com/api-keys"),
+    ANTHROPIC("Anthropic", "https://api.anthropic.com/v1", ApiStyle.ANTHROPIC, true, false, "claude-haiku-5-5", "https://console.anthropic.com/settings/keys"),
+    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", ApiStyle.OPENAI_CHAT, true, false, "", "https://openrouter.ai/keys"),
+    GEMINI("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", ApiStyle.OPENAI_CHAT, true, false, "", "https://aistudio.google.com/apikey"),
     CUSTOM("OpenAI-compatible", "http://10.0.2.2:11434/v1", ApiStyle.OPENAI_CHAT, false, true, ""),
     ;
 
@@ -28,4 +30,6 @@ data class BackendConfig(
     val baseUrl: String,
     val model: String,
     val apiKey: String,
+    val thinking: Thinking? = null,
+    val agentModel: String = "",
 )

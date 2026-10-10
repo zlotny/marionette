@@ -13,6 +13,12 @@ class WakeTemplates(context: Context) {
 
     fun count(): Int = load().size
 
+    companion object {
+        const val MAX_TEMPLATES = 30
+
+        fun <T> merge(existing: List<T>, added: List<T>): List<T> = (existing + added).takeLast(MAX_TEMPLATES)
+    }
+
     fun clear() {
         file.delete()
         samplesDir.listFiles()?.forEach { it.delete() }

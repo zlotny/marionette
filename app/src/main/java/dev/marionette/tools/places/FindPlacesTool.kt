@@ -33,7 +33,7 @@ class FindPlacesTool(
 
     override fun summary(args: JsonObject): String =
         listOfNotNull(args.string("query"), args.string("category")?.replace('_', ' '), args.string("near")?.let { "near $it" })
-            .joinToString(" ").ifBlank { "places" }
+            .joinToString(" ")
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val query = args.string("query")?.trim()?.takeIf { it.isNotEmpty() }

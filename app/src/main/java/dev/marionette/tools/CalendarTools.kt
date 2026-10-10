@@ -48,7 +48,7 @@ class ListEventsTool : Tool {
         integer("limit", "Maximum results. Default 20.")
     }
 
-    override fun summary(args: JsonObject) = listOfNotNull(args.string("from"), args.string("to")).joinToString(" to ").ifBlank { "upcoming" }
+    override fun summary(args: JsonObject) = listOfNotNull(args.string("from"), args.string("to")).joinToString(" to ")
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject = withContext(Dispatchers.IO) {
         val from = LocalTimes.parse(args.string("from")) ?: LocalDateTime.now()

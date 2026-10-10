@@ -13,16 +13,37 @@ object SettingsNavigation {
     object Backend
 
     @Serializable
+    object Instructions
+
+    @Serializable
+    object Credentials
+
+    @Serializable
     object Wake
 
     @Serializable
-    object Voice
+    object WakeSensitivity
+
+    @Serializable
+    object Recognition
+
+    @Serializable
+    object Speech
+
+    @Serializable
+    object Conversation
+
+    @Serializable
+    object HoldPhrases
 
     @Serializable
     object Context
 
     @Serializable
     object Tools
+
+    @Serializable
+    object Places
 
     @Serializable
     object Permissions
@@ -39,10 +60,17 @@ fun NavGraphBuilder.settingsGraph(nav: NavHostController) {
         SettingsScreen(onBack = nav::navigateUp, onOpen = { nav.navigate(it) })
     }
     composable<SettingsNavigation.Backend> { BackendScreen(onBack = nav::navigateUp) }
-    composable<SettingsNavigation.Wake> { WakeScreen(onBack = nav::navigateUp) }
-    composable<SettingsNavigation.Voice> { VoiceScreen(onBack = nav::navigateUp) }
+    composable<SettingsNavigation.Credentials> { CredentialsScreen(onBack = nav::navigateUp) }
+    composable<SettingsNavigation.Instructions> { InstructionsScreen(onBack = nav::navigateUp) }
+    composable<SettingsNavigation.Wake> { WakeScreen(onBack = nav::navigateUp, onOpenSensitivity = { nav.navigate(SettingsNavigation.WakeSensitivity) }) }
+    composable<SettingsNavigation.WakeSensitivity> { WakeSensitivityScreen(onBack = nav::navigateUp) }
+    composable<SettingsNavigation.Recognition> { RecognitionScreen(onBack = nav::navigateUp) }
+    composable<SettingsNavigation.Speech> { SpeechScreen(onBack = nav::navigateUp) }
+    composable<SettingsNavigation.Conversation> { ConversationScreen(onBack = nav::navigateUp, onOpenHoldPhrases = { nav.navigate(SettingsNavigation.HoldPhrases) }) }
+    composable<SettingsNavigation.HoldPhrases> { HoldPhrasesScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.Context> { ContextScreen(onBack = nav::navigateUp) }
-    composable<SettingsNavigation.Tools> { ToolsScreen(onBack = nav::navigateUp) }
+    composable<SettingsNavigation.Tools> { ToolsScreen(onBack = nav::navigateUp, onOpenPlaces = { nav.navigate(SettingsNavigation.Places) }) }
+    composable<SettingsNavigation.Places> { PlacesScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.Permissions> { PermissionsScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.ScreenControl> { ScreenControlScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.About> { AboutScreen(onBack = nav::navigateUp) }

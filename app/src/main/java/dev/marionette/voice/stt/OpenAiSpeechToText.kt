@@ -18,14 +18,14 @@ import java.nio.ByteOrder
 
 class OpenAiSpeechToText(
     private val apiKey: () -> String,
-    private val baseUrl: String = "https://api.openai.com/v1",
-    private val model: String = "whisper-1",
+    private val baseUrl: String,
+    private val model: String,
 ) : SpeechToText {
-    override val name = "openai"
+    override val name = "cloud"
 
     override fun isAvailable(): Boolean = apiKey().isNotBlank()
 
-    override suspend fun start(language: String, onPartial: (String) -> Unit): SttSession = object : SttSession {
+    override suspend fun start(language: String, secondLanguage: String, onPartial: (String) -> Unit): SttSession = object : SttSession {
         private val audio = ByteArrayOutputStream()
 
         override fun accept(pcm: ShortArray, count: Int) {
@@ -40,7 +40,9 @@ class OpenAiSpeechToText(
             val body = MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("model", model)
                 .addFormDataPart("response_format", "json")
-                .apply { language.substringBefore('-').takeIf { it.length == 2 }?.let { addFormDataPart("language", it) } }
+                .apply {
+                    if (secondLanguage.isBlank()) language.substringBefore('-').takeIf { it.length == 2 }?.let { addFormDataPart("language", it) }
+                }
                 .addFormDataPart("file", "speech.wav", wav(pcm).toRequestBody("audio/wav".toMediaType()))
                 .build()
             val request = Request.Builder()

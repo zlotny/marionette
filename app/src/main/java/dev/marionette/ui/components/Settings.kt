@@ -48,6 +48,18 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 
 class SettingsGroupScope internal constructor() {
     internal val items = mutableListOf<@Composable (index: Int, count: Int) -> Unit>()
@@ -128,6 +140,24 @@ fun SettingsIcon(icon: ImageVector, container: Color = MaterialTheme.colorScheme
     Box(Modifier.size(40.dp).clip(CircleShape).background(container), contentAlignment = Alignment.Center) {
         Icon(icon, null, Modifier.size(22.dp), tint = content)
     }
+}
+
+@Composable
+fun RadioCardRow(
+    index: Int,
+    count: Int,
+    headline: String,
+    supporting: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    SettingsRow(
+        index, count,
+        headline = headline,
+        supporting = supporting,
+        leading = { RadioButton(selected = selected, onClick = null) },
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -253,4 +283,145 @@ fun SecretField(label: String, saved: String, onSave: (String) -> Unit, modifier
         },
         modifier = modifier.fillMaxWidth(),
     )
+}
+
+@Composable
+fun TextRow(
+    index: Int,
+    count: Int,
+    headline: String,
+    value: String,
+    onSave: (String) -> Unit,
+    leading: (@Composable () -> Unit)? = null,
+    label: String = headline,
+    maxLength: Int = Int.MAX_VALUE,
+) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    SettingsRow(index, count, headline = headline, supporting = value, leading = leading, onClick = { open = true })
+    if (open) {
+        TextDialog(
+            title = headline,
+            initial = value,
+            label = label,
+            maxLength = maxLength,
+            onDismiss = { open = false },
+            onSave = {
+                onSave(it)
+                open = false
+            },
+        )
+    }
+}
+
+@Composable
+fun TextDialog(
+    title: String,
+    initial: String,
+    label: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    maxLength: Int = Int.MAX_VALUE,
+    capitalization: KeyboardCapitalization = KeyboardCapitalization.Words,
+) {
+    var draft by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length))) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { if (it.text.length <= maxLength) draft = it },
+                label = { Text(label) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = capitalization),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(draft.text.trim()) }, enabled = draft.text.isNotBlank()) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsCard(index: Int, count: Int, content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        shape = ListItemDefaults.segmentedShapes(index, count).shape,
+        color = ListItemDefaults.segmentedColors().containerColor,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(content = content)
+    }
+}
+
+@Composable
+fun NestedRow(
+    headline: String,
+    supporting: String? = null,
+    icon: ImageVector,
+    enabled: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    val alpha = if (enabled) 1f else 0.38f
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(start = 72.dp, end = 16.dp, top = 10.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha))
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(headline, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+            supporting?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
+            }
+        }
+        trailing?.let {
+            Spacer(Modifier.size(12.dp))
+            it()
+        }
+    }
+}
+
+@Composable
+fun NestedDivider() {
+    HorizontalDivider(Modifier.padding(start = 72.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+fun CardRow(
+    headline: String,
+    supporting: String? = null,
+    leading: @Composable () -> Unit,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 72.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        leading()
+        Spacer(Modifier.size(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(headline, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            supporting?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        trailing?.let {
+            Spacer(Modifier.size(12.dp))
+            it()
+        }
+    }
 }

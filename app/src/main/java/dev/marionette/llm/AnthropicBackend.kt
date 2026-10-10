@@ -12,10 +12,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArrayBuilder
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -25,7 +27,8 @@ class AnthropicBackend(
     private val baseUrl: String,
     private val apiKey: String,
     private val model: String,
-    private val maxTokens: Int = 1024,
+    private val maxTokens: Int = 16_000,
+    private val thinking: Thinking? = null,
     private val client: OkHttpClient = Http.client,
 ) : LlmBackend {
 
@@ -62,7 +65,8 @@ class AnthropicBackend(
         put("model", model)
         put("max_tokens", maxTokens)
         put("stream", true)
-        put("system", system)
+        thinking?.let { level -> putJsonObject("output_config") { put("effort", level.id) } }
+        if (system.isNotBlank()) put("system", system)
         putJsonArray("messages") { groupTurns(messages).forEach { turn -> addTurn(turn) } }
         if (tools.isNotEmpty()) {
             putJsonArray("tools") {
@@ -98,7 +102,9 @@ class AnthropicBackend(
                             put("type", "text")
                             put("text", message.text)
                         }
-                        is ChatMessage.Assistant -> {
+                        is ChatMessage.Assistant -> if (message.native.isNotEmpty()) {
+                            message.native.forEach { add(it) }
+                        } else {
                             if (message.text.isNotBlank()) addJsonObject {
                                 put("type", "text")
                                 put("text", message.text)
@@ -123,7 +129,32 @@ class AnthropicBackend(
         }
     }
 
-    private class Block(val type: String, val id: String, val name: String, val text: StringBuilder = StringBuilder())
+    private class Block(val start: JsonObject, val text: StringBuilder = StringBuilder(), val signature: StringBuilder = StringBuilder()) {
+        val type: String = start.string("type").orEmpty()
+        val id: String = start.string("id").orEmpty()
+        val name: String = start.string("name").orEmpty()
+
+        fun native(): JsonObject? = when (type) {
+            "text" -> buildJsonObject {
+                put("type", "text")
+                put("text", text.toString())
+            }.takeIf { text.isNotBlank() }
+            "tool_use" -> buildJsonObject {
+                put("type", "tool_use")
+                put("id", id)
+                put("name", name)
+                put("input", parseObject(text.toString().ifBlank { "{}" }))
+            }
+            "thinking" -> JsonObject(
+                start + mapOf(
+                    "thinking" to JsonPrimitive(start.string("thinking").orEmpty() + text),
+                    "signature" to JsonPrimitive(start.string("signature").orEmpty() + signature),
+                ),
+            )
+            "redacted_thinking" -> start
+            else -> null
+        }
+    }
 
     private class Accumulator {
         private val blocks = sortedMapOf<Int, Block>()
@@ -136,7 +167,7 @@ class AnthropicBackend(
                 "content_block_start" -> {
                     val index = json.int("index") ?: return
                     val block = json["content_block"].obj() ?: return
-                    blocks[index] = Block(block.string("type").orEmpty(), block.string("id").orEmpty(), block.string("name").orEmpty())
+                    blocks[index] = Block(block)
                 }
                 "content_block_delta" -> {
                     val block = blocks[json.int("index") ?: return] ?: return
@@ -147,6 +178,8 @@ class AnthropicBackend(
                             onText(it)
                         }
                         "input_json_delta" -> delta.string("partial_json")?.let { block.text.append(it) }
+                        "thinking_delta" -> delta.string("thinking")?.let { block.text.append(it) }
+                        "signature_delta" -> delta.string("signature")?.let { block.signature.append(it) }
                     }
                 }
                 "message_delta" -> json["usage"].obj()?.let { output = it.int("output_tokens") ?: output }
@@ -158,6 +191,7 @@ class AnthropicBackend(
             blocks.values.filter { it.type == "text" }.joinToString("") { it.text },
             blocks.values.filter { it.type == "tool_use" }.map { ToolCall(it.id, it.name, it.text.toString().ifBlank { "{}" }) },
             Usage(input, output),
+            blocks.values.mapNotNull { it.native() },
         )
     }
 

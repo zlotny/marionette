@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.ui.agentName
 import dev.marionette.agent.ContextBlock
 import dev.marionette.settings.ContextField
 import dev.marionette.ui.components.SettingsGroup
@@ -63,7 +64,8 @@ fun ContextScreen(onBack: () -> Unit) {
     }
 
     SettingsScaffold(title = stringResource(R.string.settings_context), onBack = onBack) {
-        item { SettingsNote(stringResource(R.string.context_intro)) }
+        item { SettingsNote(stringResource(R.string.context_intro, agentName())) }
+        item { SettingsGroup(null) { item { i, n -> SendContextRow(i, n) } } }
         item {
             SettingsGroup(null) {
                 ContextField.entries.forEach { field ->
@@ -86,7 +88,7 @@ fun ContextScreen(onBack: () -> Unit) {
         item {
             Column {
                 Text(
-                    stringResource(R.string.context_preview),
+                    stringResource(R.string.context_preview, agentName()),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, top = 8.dp),

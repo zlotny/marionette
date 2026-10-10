@@ -5,6 +5,7 @@ import dev.marionette.agent.DeviceSnapshotProvider
 import dev.marionette.core.jsonOf
 import dev.marionette.launch.LaunchStatus
 import dev.marionette.launch.Launcher
+import dev.marionette.media.PlaybackHold
 import dev.marionette.settings.AppSettings
 import dev.marionette.llm.ToolSpec
 import kotlinx.serialization.json.JsonObject
@@ -16,6 +17,7 @@ class ToolContext(
     val device: DeviceSnapshotProvider,
     val launcher: Launcher,
     val settings: AppSettings,
+    val playback: PlaybackHold,
 )
 
 interface Tool {
@@ -28,7 +30,9 @@ interface Tool {
 
     fun confirmationPrompt(args: JsonObject): String? = null
 
-    fun summary(args: JsonObject): String = name
+    fun summary(args: JsonObject): String = ""
+
+    fun silencesTurn(args: JsonObject, result: JsonObject): Boolean = false
 
     suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject
 

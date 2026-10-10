@@ -14,6 +14,7 @@ class MarionetteApp : Application() {
                     setShowBadge(false)
                 },
                 NotificationChannel(CHANNEL_ALERTS, getString(R.string.channel_alerts), NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel(CHANNEL_TIPS, getString(R.string.channel_tips), NotificationManager.IMPORTANCE_DEFAULT),
             ),
         )
     }
@@ -21,6 +22,7 @@ class MarionetteApp : Application() {
     companion object {
         const val CHANNEL_LISTENER = "listener"
         const val CHANNEL_ALERTS = "alerts"
+        const val CHANNEL_TIPS = "tips"
 
         lateinit var graph: AppGraph
             private set

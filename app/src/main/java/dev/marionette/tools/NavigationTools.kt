@@ -23,7 +23,7 @@ class NavigateTool : Tool {
         string("mode", "Travel mode.", enum = listOf("d", "w", "b"))
     }
 
-    override fun summary(args: JsonObject) = args.string("label") ?: "destination"
+    override fun summary(args: JsonObject) = args.string("label").orEmpty()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val lat = args.double("lat") ?: return ToolResults.error("bad_arguments", "lat is required.")
