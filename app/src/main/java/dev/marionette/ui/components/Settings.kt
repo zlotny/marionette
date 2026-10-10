@@ -160,6 +160,8 @@ fun RadioCardRow(
     )
 }
 
+data class ChoiceDetail(val text: String, val badge: String? = null)
+
 @Composable
 fun <T> ChoiceRow(
     index: Int,
@@ -170,12 +172,15 @@ fun <T> ChoiceRow(
     onSelect: (T) -> Unit,
     leading: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
+    describe: (@Composable (T) -> ChoiceDetail?)? = null,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selected }?.second
+    val selectedDetail = describe?.invoke(selected)?.text
     SettingsRow(
         index, count,
         headline = headline,
-        supporting = options.firstOrNull { it.first == selected }?.second,
+        supporting = listOfNotNull(selectedLabel, selectedDetail).joinToString("\n").ifBlank { null },
         leading = leading,
         enabled = enabled,
         onClick = { open = true },
@@ -202,12 +207,35 @@ fun <T> ChoiceRow(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             RadioButton(selected = value == selected, onClick = null)
-                            Text(label, Modifier.padding(start = 16.dp), style = MaterialTheme.typography.bodyLarge)
+                            val detail = describe?.invoke(value)
+                            Column(Modifier.padding(start = 16.dp, top = 6.dp, bottom = 6.dp)) {
+                                Text(label, style = MaterialTheme.typography.bodyLarge)
+                                detail?.let {
+                                    Text(it.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    it.badge?.let { badge -> ChoiceBadge(badge) }
+                                }
+                            }
                         }
                     }
                 }
             },
             confirmButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
+}
+
+@Composable
+private fun ChoiceBadge(text: String) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        modifier = Modifier.padding(top = 4.dp),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }
 }

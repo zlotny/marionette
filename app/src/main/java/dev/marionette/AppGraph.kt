@@ -6,11 +6,13 @@ import dev.marionette.agent.Agent
 import dev.marionette.agent.ConfirmationBroker
 import dev.marionette.agent.Conversation
 import dev.marionette.agent.DeviceSnapshotProvider
+import dev.marionette.agent.ModelStats
 import dev.marionette.agent.SystemPrompt
 import dev.marionette.agent.TraceWriter
 import dev.marionette.agent.UnlockTip
 import dev.marionette.health.HealthMonitor
 import dev.marionette.launch.Launcher
+import dev.marionette.llm.ModelPrices
 import dev.marionette.media.PlaybackHold
 import dev.marionette.settings.SettingsStore
 import dev.marionette.tools.ToolRegistry
@@ -33,6 +35,8 @@ class AppGraph(context: Context) {
     val traces = TraceWriter(app)
     val registry = ToolRegistry(Tools.all())
     val prompt = SystemPrompt(app)
+    val modelStats = ModelStats(File(app.filesDir, "model-stats.json"))
+    val modelPrices = ModelPrices(File(app.cacheDir, "openrouter-models.json"))
     val agent = Agent(
         context = app,
         scope = scope,
@@ -47,6 +51,7 @@ class AppGraph(context: Context) {
         traces = traces,
         conversation = conversation,
         unlockTip = UnlockTip(app, settings, scope),
+        modelStats = modelStats,
     )
     val health = HealthMonitor(app, settings, conversation.turns, scope)
 }

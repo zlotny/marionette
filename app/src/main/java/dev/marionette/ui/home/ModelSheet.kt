@@ -48,6 +48,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.R
 import dev.marionette.agent.Chat
+import dev.marionette.agent.ModelStats
+import dev.marionette.agent.StepStats
+import dev.marionette.llm.ModelPrice
+import dev.marionette.llm.ModelPrices
+import dev.marionette.ui.components.formatSeconds
+import dev.marionette.ui.components.formatUsd
 import dev.marionette.llm.Provider
 import dev.marionette.llm.Thinking
 import dev.marionette.settings.AppSettings
@@ -78,6 +84,8 @@ fun modelSubtitle(settings: AppSettings, choice: ModelChoice): String? {
 @Composable
 fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBackend: () -> Unit, onDismiss: () -> Unit) {
     val models by picker.models.collectAsStateWithLifecycle()
+    val prices by picker.prices.collectAsStateWithLifecycle()
+    val stats by picker.stats.collectAsStateWithLifecycle()
     val sync by picker.sync.collectAsStateWithLifecycle()
     val choice = picker.choice(settings, chat)
     var asDefault by rememberSaveable { mutableStateOf(false) }
@@ -97,6 +105,9 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
     }.distinct()
     val selected = byRef[choice.model]
     val levels = Thinking.levels(settings.provider).filter { level -> selected == null || level in selected.thinking }
+    val thinkingId = Thinking.of(choice.thinking)?.id.orEmpty()
+    val usage = rememberStepUsage(stats, prices, settings.provider, thinkingId)
+    val measuredLevels = ModelStats.forModel(stats, settings.provider.name, choice.model)
     val filtered = remember(options, query) {
         val words = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
         options.filter { option -> words.all { option.ref.contains(it, true) || option.label.contains(it, true) } }.take(MAX_RESULTS)
@@ -107,6 +118,7 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
             item {
                 Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(stringResource(R.string.model_sheet_title), style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(R.string.model_latency_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (paired) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { asDefault = !asDefault }.padding(vertical = 8.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text(stringResource(R.string.model_sheet_new_chats), style = MaterialTheme.typography.bodyLarge)
@@ -134,6 +146,7 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
                 ModelRow(
                     title = if (ref.isBlank()) stringResource(R.string.model_agent_default) else byRef[ref]?.label ?: modelLabel(ref),
                     subtitle = if (ref.isBlank()) stringResource(R.string.model_agent_default_body) else ref,
+                    detail = usage(ref),
                     selected = ref == choice.model,
                     onClick = { picker.selectModel(ref, asDefault) },
                 )
@@ -176,7 +189,7 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
                     else -> {
                         if (filtered.isEmpty()) item { Text(stringResource(R.string.model_none_found), Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium) }
                         items(filtered, key = { "all-${it.ref}" }) { option ->
-                            ModelRow(option.label, option.ref, option.ref == choice.model) {
+                            ModelRow(option.label, option.ref, usage(option.ref), option.ref == choice.model) {
                                 picker.selectModel(option.ref, asDefault)
                                 browsing = false
                                 query = ""
@@ -198,6 +211,16 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
                                 label = { Text(thinkingLabel(id)) },
                             )
                         }
+                    }
+                    val measured = (listOf("") + levels.map { it.id }).mapNotNull { id ->
+                        measuredLevels[id]?.let { thinkingLabel(id) + " " + stringResource(R.string.voice_seconds, formatSeconds(it.millis / 1000)) }
+                    }
+                    if (measured.isNotEmpty()) {
+                        Text(
+                            stringResource(R.string.thinking_measured, measured.joinToString(" · ")),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     when (val state = sync) {
                         ThinkingSync.Applying -> LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -228,7 +251,7 @@ private fun Notice(text: String) {
 }
 
 @Composable
-private fun ModelRow(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
+private fun ModelRow(title: String, subtitle: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -238,7 +261,33 @@ private fun ModelRow(title: String, subtitle: String, selected: Boolean, onClick
             if (subtitle != title) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
         }
         if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }
+
+@Composable
+private fun rememberStepUsage(stats: Map<String, StepStats>, prices: Map<String, ModelPrice>, provider: Provider, thinking: String): @Composable (String) -> String? {
+    val fallback = remember(stats, provider) {
+        val measured = ModelStats.merge(ModelStats.forProvider(stats, provider.name))
+        val defaultInput = if (provider.isAgent) AGENT_INPUT_TOKENS else PLAIN_INPUT_TOKENS
+        (measured?.inputTokens?.takeUnless { provider.isAgent } ?: defaultInput) to (measured?.outputTokens ?: DEFAULT_OUTPUT_TOKENS)
+    }
+    return { ref ->
+        val perLevel = ModelStats.forModel(stats, provider.name, ref)
+        val merged = ModelStats.merge(perLevel.values)
+        val timing = perLevel[thinking] ?: merged
+        val price = ref.takeIf { it.isNotBlank() }?.let { ModelPrices.find(prices, it, provider) }
+        val input = merged?.inputTokens?.takeUnless { provider.isAgent } ?: fallback.first
+        val cost = price?.request(input.toInt(), (merged?.outputTokens ?: fallback.second).toInt())
+        listOfNotNull(
+            cost?.let { stringResource(R.string.model_cost_step, formatUsd(it)) },
+            timing?.let { stringResource(R.string.model_time_step, formatSeconds(it.millis / 1000)) },
+        ).joinToString(" · ").ifBlank { null }
+    }
+}
+
+private const val AGENT_INPUT_TOKENS = 12_000.0
+private const val PLAIN_INPUT_TOKENS = 4_000.0
+private const val DEFAULT_OUTPUT_TOKENS = 300.0

@@ -33,6 +33,14 @@ import dev.marionette.settings.TtsEngine
 import dev.marionette.voice.CloudSpeech
 import dev.marionette.voice.CloudVoice
 import dev.marionette.voice.SpeechModel
+import dev.marionette.voice.Accuracy
+import dev.marionette.voice.ModelTag
+import dev.marionette.voice.SttBenchmark
+import dev.marionette.voice.TtsBenchmark
+import dev.marionette.voice.VoiceModelCatalog
+import dev.marionette.ui.components.ChoiceDetail
+import dev.marionette.ui.components.formatSeconds
+import dev.marionette.ui.components.formatUsd
 import dev.marionette.ui.components.ChoiceRow
 import dev.marionette.ui.components.RadioCardRow
 import dev.marionette.ui.components.SettingsGroup
@@ -94,6 +102,7 @@ fun RecognitionScreen(onBack: () -> Unit) {
                             options = settings.sttCloud.models.map { it to it },
                             selected = settings.sttModel.takeIf { it in settings.sttCloud.models } ?: settings.sttCloud.models.first(),
                             onSelect = { model -> updateSettings { it.copy(sttModel = model) } },
+                            describe = { model -> VoiceModelCatalog.stt(model)?.let { sttDetail(it) } },
                         )
                     }
                     item { i, n ->
@@ -101,6 +110,7 @@ fun RecognitionScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            item { SettingsNote(stringResource(R.string.voice_stt_models_note)) }
         }
         item {
             SettingsGroup(stringResource(R.string.voice_group_language)) {
@@ -156,6 +166,10 @@ fun SpeechScreen(onBack: () -> Unit) {
     val cloud = settings.ttsCloud
     val model = settings.ttsModel.ifBlank { cloud.defaultModel }
     val modelVoices = models.firstOrNull { it.id == model }?.voices.orEmpty()
+    val english = Languages.locale(settings.language).language == "en"
+    val modelOptions = (models.map { it.id to it.name } + (model to model)).distinctBy { it.first }
+        .sortedBy { (id, _) -> VoiceModelCatalog.tts(id)?.firstAudioSeconds ?: Double.MAX_VALUE }
+    val livePrices = models.associate { it.id to it.usdPerHour }
 
     SettingsScaffold(title = stringResource(R.string.voice_group_speech), onBack = onBack) {
         item {
@@ -196,8 +210,9 @@ fun SpeechScreen(onBack: () -> Unit) {
                         ChoiceRow(
                             i, n,
                             headline = stringResource(R.string.voice_cloud_model),
-                            options = (models.map { it.id to it.name } + (model to model)).distinctBy { it.first },
+                            options = modelOptions,
                             selected = model,
+                            describe = { id -> ttsDetail(VoiceModelCatalog.tts(id), livePrices[id], english) },
                             onSelect = { id ->
                                 val first = models.firstOrNull { it.id == id }?.voices?.firstOrNull().orEmpty()
                                 updateSettings { it.copy(ttsModel = id, ttsCloudVoice = if (id == cloud.defaultModel) cloud.defaultVoice else first) }
@@ -251,6 +266,7 @@ fun SpeechScreen(onBack: () -> Unit) {
                     stringResource(if (settings.ttsKey.isBlank()) R.string.voice_speech_cloud_needs_key else R.string.voice_speech_cloud_note, cloud.title),
                 )
             }
+            item { SettingsNote(stringResource(R.string.voice_tts_models_note)) }
         }
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
@@ -321,6 +337,44 @@ fun ConversationScreen(onBack: () -> Unit, onOpenHoldPhrases: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun sttDetail(benchmark: SttBenchmark): ChoiceDetail {
+    val accuracy = when (benchmark.accuracy) {
+        Accuracy.EXCELLENT -> stringResource(R.string.voice_accuracy_excellent)
+        Accuracy.GOOD -> stringResource(R.string.voice_accuracy_good)
+        Accuracy.FAIR -> stringResource(R.string.voice_accuracy_fair)
+        Accuracy.POOR -> stringResource(R.string.voice_accuracy_poor)
+    }
+    val text = listOf(
+        accuracy,
+        stringResource(R.string.voice_seconds, formatSeconds(benchmark.latencySeconds)),
+        stringResource(R.string.voice_cost_hour, formatUsd(benchmark.usdPerHour)),
+    ).joinToString(" · ")
+    return ChoiceDetail(text, tagLabels(benchmark.tags))
+}
+
+@Composable
+private fun ttsDetail(benchmark: TtsBenchmark?, liveUsdPerHour: Double?, english: Boolean): ChoiceDetail? {
+    val cost = liveUsdPerHour ?: benchmark?.usdPerHour
+    val parts = listOfNotNull(
+        benchmark?.let { stringResource(R.string.voice_first_audio, formatSeconds(it.firstAudioSeconds)) },
+        cost?.let { stringResource(R.string.voice_cost_hour, formatUsd(it)) },
+        stringResource(R.string.voice_english_only).takeIf { benchmark?.englishOnly == true && !english },
+    )
+    if (parts.isEmpty()) return null
+    return ChoiceDetail(parts.joinToString(" · "), tagLabels(benchmark?.allTags.orEmpty()))
+}
+
+@Composable
+private fun tagLabels(tags: Set<ModelTag>): String? = ModelTag.entries.filter { it in tags }.map { tag ->
+    when (tag) {
+        ModelTag.RECOMMENDED -> stringResource(R.string.voice_tag_recommended)
+        ModelTag.FASTEST -> stringResource(R.string.voice_tag_fastest)
+        ModelTag.CHEAPEST -> stringResource(R.string.voice_tag_cheapest)
+        ModelTag.SLOW -> stringResource(R.string.voice_tag_slow)
+    }
+}.joinToString(" · ").ifBlank { null }
 
 private fun voiceLabel(name: String, tag: String): String {
     val variant = name.substringAfter("-x-", "").substringBefore('-').ifBlank { name }

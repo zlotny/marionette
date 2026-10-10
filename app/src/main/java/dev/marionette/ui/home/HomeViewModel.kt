@@ -16,7 +16,7 @@ class HomeViewModel : ViewModel() {
     val confirmation = graph.confirmations.pending
     val settings = graph.settings.settings
     val health = graph.health.backend
-    val picker = ModelPicker(graph.settings, graph.conversation, viewModelScope)
+    val picker = ModelPicker(graph.settings, graph.conversation, viewModelScope, graph.modelPrices, graph.modelStats)
 
     fun checkHealth() = graph.health.check()
 

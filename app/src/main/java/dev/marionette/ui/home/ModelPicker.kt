@@ -3,6 +3,10 @@ package dev.marionette.ui.home
 import dev.marionette.agent.Agent
 import dev.marionette.agent.Chat
 import dev.marionette.agent.Conversation
+import dev.marionette.agent.ModelStats
+import dev.marionette.agent.StepStats
+import dev.marionette.llm.ModelPrice
+import dev.marionette.llm.ModelPrices
 import dev.marionette.llm.BackendFactory
 import dev.marionette.llm.DeviceIdentity
 import dev.marionette.llm.LinkResult
@@ -38,7 +42,17 @@ sealed interface ThinkingSync {
 
 data class ModelChoice(val model: String, val thinking: String, val chatModel: String?, val chatThinking: String?)
 
-class ModelPicker(private val settings: SettingsStore, private val conversation: Conversation, private val scope: CoroutineScope) {
+class ModelPicker(
+    private val settings: SettingsStore,
+    private val conversation: Conversation,
+    private val scope: CoroutineScope,
+    private val modelPrices: ModelPrices,
+    modelStats: ModelStats,
+) {
+    private val _prices = MutableStateFlow<Map<String, ModelPrice>>(emptyMap())
+    val prices: StateFlow<Map<String, ModelPrice>> = _prices.asStateFlow()
+    val stats: StateFlow<Map<String, StepStats>> = modelStats.stats
+
     private val _models = MutableStateFlow<ModelList>(ModelList.Idle)
     val models: StateFlow<ModelList> = _models.asStateFlow()
 
@@ -49,6 +63,7 @@ class ModelPicker(private val settings: SettingsStore, private val conversation:
     private var loading: Job? = null
 
     fun load() {
+        if (_prices.value.isEmpty()) scope.launch { _prices.value = modelPrices.load() }
         val s = settings.current
         val key = listOf(s.provider.name, s.baseUrl, s.model, s.liveProgress).joinToString("|")
         if (key == loadedFor && _models.value is ModelList.Loaded) return

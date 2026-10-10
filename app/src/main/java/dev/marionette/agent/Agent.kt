@@ -61,6 +61,7 @@ class Agent(
     private val traces: TraceWriter,
     val conversation: Conversation,
     private val unlockTip: UnlockTip,
+    private val modelStats: ModelStats,
 ) {
     private val history = mutableListOf<ChatMessage>()
     private var historyChat = ""
@@ -138,6 +139,7 @@ class Agent(
         val own = chat.overrideProvider == s.provider.name
         val config = s.backendFor(chat.model.takeIf { own }, chat.thinking.takeIf { own })
         trace.backend = s.provider.name + " " + listOf(config.model, config.agentModel, config.thinking?.id.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
+        val statsModel = if (s.provider.isAgent) config.agentModel else config.model
         val user = sessionUser(chat.id)
         val backend = BackendFactory.create(config, sessionUser = user)
         val toolContext = ToolContext(context, device, launcher, s, playback)
@@ -180,7 +182,9 @@ class Agent(
                     streamed.append(delta)
                     conversation.update(id) { it.copy(reply = streamed.toString()) }
                 }
-                trace.round(round, System.currentTimeMillis() - started, reply.text, reply.toolCalls, reply.usage?.inputTokens, reply.usage?.outputTokens)
+                val elapsed = System.currentTimeMillis() - started
+                trace.round(round, elapsed, reply.text, reply.toolCalls, reply.usage?.inputTokens, reply.usage?.outputTokens)
+                modelStats.record(s.provider.name, statsModel, config.thinking?.id.orEmpty(), elapsed, reply.usage?.inputTokens, reply.usage?.outputTokens)
                 val assistant = ChatMessage.Assistant(reply.text, reply.toolCalls, reply.native)
                 history += assistant
                 pending.clear()

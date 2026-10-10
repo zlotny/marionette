@@ -11,8 +11,9 @@ enum class SttCloud(val title: String, val baseUrl: String, val provider: Provid
     OPENROUTER(
         "OpenRouter", "https://openrouter.ai/api/v1", Provider.OPENROUTER,
         listOf(
-            "openai/gpt-4o-mini-transcribe", "openai/gpt-4o-transcribe", "assemblyai/universal-3-5-pro", "openai/gpt-transcribe",
-            "elevenlabs/scribe-v2", "qwen/qwen3-asr-1.7b",
+            "openai/gpt-4o-mini-transcribe", "microsoft/mai-transcribe-2", "openai/gpt-4o-transcribe", "elevenlabs/scribe-v2",
+            "mistralai/voxtral-mini-transcribe", "openai/gpt-transcribe", "assemblyai/universal-3-5-pro", "qwen/qwen3-asr-1.7b",
+            "openai/whisper-large-v3-turbo",
         ),
     ),
 }

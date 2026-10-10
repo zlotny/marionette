@@ -37,7 +37,7 @@ data class CloudVoice(val baseUrl: String, val key: String, val model: String, v
 
 data class SpeechClip(val file: File, val sampleRate: Int)
 
-data class SpeechModel(val id: String, val name: String, val voices: List<String>)
+data class SpeechModel(val id: String, val name: String, val voices: List<String>, val usdPerHour: Double? = null)
 
 object CloudSpeech {
     private val JSON = "application/json".toMediaType()
@@ -82,7 +82,13 @@ object CloudSpeech {
     fun parseModels(body: String): List<SpeechModel> = parseObject(body)["data"].arr().orEmpty().mapNotNull { element ->
         val model = element.obj() ?: return@mapNotNull null
         val id = model.string("id") ?: return@mapNotNull null
-        SpeechModel(id, model.string("name") ?: id, model["supported_voices"].arr().orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull })
+        val pricing = model["pricing"].obj()
+        SpeechModel(
+            id,
+            model.string("name") ?: id,
+            model["supported_voices"].arr().orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull },
+            VoiceModelCatalog.ttsUsdPerHour(pricing?.string("prompt")?.toDoubleOrNull(), pricing?.string("completion")?.toDoubleOrNull()),
+        )
     }
 
     fun chunks(text: String): List<String> {

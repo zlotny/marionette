@@ -586,4 +586,22 @@
     <string name="voice_speech_cloud_body">The most natural voices, from many providers. Needs a key and an internet connection.</string>
     <string name="voice_speech_cloud_note">Replies are sent to %1$s to be spoken. If the cloud voice fails, the phone voice reads the rest.</string>
     <string name="voice_speech_cloud_needs_key">Add your %1$s key to use cloud voices. Until then, the phone voice speaks.</string>
+    <string name="voice_accuracy_excellent">Excellent</string>
+    <string name="voice_accuracy_good">Good</string>
+    <string name="voice_accuracy_fair">Fair</string>
+    <string name="voice_accuracy_poor">Poor</string>
+    <string name="voice_seconds">%1$s s</string>
+    <string name="voice_first_audio">%1$s s to first audio</string>
+    <string name="voice_cost_hour">$%1$s/h</string>
+    <string name="voice_english_only">English only</string>
+    <string name="voice_tag_recommended">Recommended</string>
+    <string name="voice_tag_fastest">Fastest</string>
+    <string name="voice_tag_cheapest">Cheapest</string>
+    <string name="voice_tag_slow">Slow</string>
+    <string name="voice_stt_models_note">Accuracy, time to text and cost per hour of audio, measured on Spanish speech.</string>
+    <string name="voice_tts_models_note">Time until the voice starts and cost per hour of speech, measured on a Spanish sentence.</string>
+    <string name="model_cost_step">~$%1$s per step</string>
+    <string name="model_time_step">%1$s s per step (measured)</string>
+    <string name="model_latency_note">Each tool step is one more model call. Bigger models and more thinking add seconds and output cost to every step. Long chats add input tokens to every step. Prices are OpenRouter list prices for the tokens your chats use.</string>
+    <string name="thinking_measured">Measured with this model: %1$s</string>
 </resources>
