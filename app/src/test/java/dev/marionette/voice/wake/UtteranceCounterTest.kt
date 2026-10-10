@@ -49,4 +49,15 @@ class UtteranceCounterTest {
         val audio = noise(1f) + speech(0.4f) + noise(0.16f) + speech(0.4f) + noise(0.8f)
         assertEquals(1, count(audio))
     }
+
+    @Test
+    fun longPhraseIsNotCutWhileSpeaking() {
+        assertEquals(0, count(noise(1f) + speech(2.8f)))
+        assertEquals(1, count(noise(1f) + speech(2.8f) + noise(0.8f)))
+    }
+
+    @Test
+    fun steadyLoudNoiseIsNotAPhrase() {
+        assertEquals(0, count(noise(1f) + speech(12f, amplitude = 0.05f)))
+    }
 }

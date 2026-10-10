@@ -16,4 +16,4 @@ interface SpeechToText {
     suspend fun start(language: String, secondLanguage: String, onPartial: (String) -> Unit): SttSession
 }
 
-class SttException(message: String) : Exception(message)
+class SttException(message: String, val languageMissing: Boolean = false) : Exception(message)

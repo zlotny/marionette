@@ -1,5 +1,7 @@
 package dev.marionette.tools
 
+import dev.marionette.R
+import android.content.res.Resources
 import android.app.Notification
 import android.app.RemoteInput
 import android.content.Intent
@@ -81,7 +83,8 @@ class ReplyNotificationTool : Tool {
 
     override fun summary(args: JsonObject) = args.string("text")?.take(40).orEmpty()
 
-    override fun confirmationPrompt(args: JsonObject) = "Reply \"${args.string("text").orEmpty()}\"?"
+    override fun confirmationPrompt(args: JsonObject, res: Resources): String =
+        res.getString(R.string.confirm_reply, args.string("text").orEmpty())
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val (listener, error) = listenerOrError()

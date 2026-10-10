@@ -96,7 +96,7 @@ fun AssistOverlay(sinceTurnId: Long, onTalk: () -> Unit, onDismiss: () -> Unit) 
             ) {
                 Column(Modifier.padding(20.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        VoiceOrb(size = 56.dp, level = voice.level, active = voice.phase != VoicePhase.WAITING)
+                        VoiceOrb(size = 56.dp, listening = true, active = voice.phase != VoicePhase.WAITING)
                         Spacer(Modifier.size(16.dp))
                         TranscriptText(
                             statusText(voice.phase, voice.partial, turn?.input),

@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.location.Geocoder
 import android.location.Location
+import android.os.SystemClock
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.BatteryManager
@@ -23,6 +24,8 @@ import dev.marionette.core.Logger
 import dev.marionette.settings.ContextField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.ZonedDateTime
@@ -33,6 +36,8 @@ class DeviceSnapshotProvider(private val context: Context) {
     private val fused by lazy { LocationServices.getFusedLocationProviderClient(context) }
     private var cachedLocation: Location? = null
     private var cachedPlace: Pair<String, String?>? = null
+    private val locating = Mutex()
+    private val geocoding = Mutex()
 
     val isLocked: Boolean get() = context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
 
@@ -42,10 +47,19 @@ class DeviceSnapshotProvider(private val context: Context) {
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
+    suspend fun prefetch(fields: Set<ContextField>, language: String) {
+        if (ContextField.LOCATION !in fields && ContextField.MOTION !in fields) return
+        val location = location() ?: return
+        if (ContextField.LOCATION in fields) placeName(location, language.ifBlank { Locale.getDefault().toLanguageTag() })
+    }
+
+    suspend fun location(): Location? = locating.withLock { freshLocation() }
+
     @SuppressLint("MissingPermission")
-    suspend fun location(): Location? {
+    private suspend fun freshLocation(): Location? {
         if (!hasLocationPermission()) return null
-        cachedLocation?.takeIf { System.currentTimeMillis() - it.time < LOCATION_MAX_AGE_MILLIS }?.let { return it }
+        cachedLocation?.takeIf(::isRecent)?.let { return it }
+        runCatching { fused.lastLocation.awaitOrNull() }.getOrNull()?.takeIf(::isRecent)?.let { return it.also { cachedLocation = it } }
         val fresh = runCatching {
             withTimeoutOrNull(LOCATION_TIMEOUT_MILLIS) {
                 val token = CancellationTokenSource()
@@ -60,6 +74,9 @@ class DeviceSnapshotProvider(private val context: Context) {
         if (result != null) cachedLocation = result
         return result
     }
+
+    private fun isRecent(location: Location): Boolean =
+        (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000 < LOCATION_MAX_AGE_MILLIS
 
     suspend fun snapshot(fields: Set<ContextField>, language: String): DeviceSnapshot {
         val location = if (ContextField.LOCATION in fields || ContextField.MOTION in fields) location() else null
@@ -92,7 +109,9 @@ class DeviceSnapshotProvider(private val context: Context) {
         return "Phone speaker"
     }
 
-    private suspend fun placeName(location: Location, locale: String): String? {
+    private suspend fun placeName(location: Location, locale: String): String? = geocoding.withLock { lookUpPlace(location, locale) }
+
+    private suspend fun lookUpPlace(location: Location, locale: String): String? {
         val key = "%.3f,%.3f".format(Locale.US, location.latitude, location.longitude)
         cachedPlace?.takeIf { it.first == key }?.let { return it.second }
         if (!Geocoder.isPresent()) return null

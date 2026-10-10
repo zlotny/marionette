@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -85,6 +86,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -217,7 +219,7 @@ fun HomeScreen(
                             transitionSpec = { (fadeIn() + slideInVertically { it / 3 }) togetherWith fadeOut() },
                             label = "composer",
                         ) { listening ->
-                            if (listening) VoicePanel(voice, onCancelVoice) else Composer(busy, viewModel::send, viewModel::stop, onTalk)
+                            if (listening) VoicePanel(voice, onCancelVoice) else Composer(busy, viewModel::send, viewModel::stop, onTalk, viewModel::warmUp)
                         }
                     }
                 },
@@ -233,7 +235,6 @@ fun HomeScreen(
             }
             ListeningGlow(
                 visible = voice.phase == VoicePhase.LISTENING,
-                level = voice.level,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -293,7 +294,10 @@ private fun AccessBanner(onReview: () -> Unit) {
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onReview) { Text(stringResource(R.string.home_banner_fix)) }
+            TextButton(
+                onClick = onReview,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onErrorContainer),
+            ) { Text(stringResource(R.string.home_banner_fix), fontWeight = FontWeight.SemiBold) }
         }
     }
 }
@@ -305,7 +309,7 @@ private fun EmptyState(modifier: Modifier, voice: VoiceStatus, onSuggestion: (St
             val glow = maxWidth * 1.4f
             VoiceOrb(
                 size = glow,
-                level = voice.level,
+                listening = true,
                 active = voice.phase != VoicePhase.OFF,
                 modifier = Modifier.requiredSize(glow).alpha(AMBIENT_ALPHA),
             )
@@ -446,7 +450,7 @@ private fun StepLine(step: ToolStep) {
 }
 
 @Composable
-private fun Composer(busy: Boolean, onSend: (String) -> Unit, onStop: () -> Unit, onTalk: () -> Unit) {
+private fun Composer(busy: Boolean, onSend: (String) -> Unit, onStop: () -> Unit, onTalk: () -> Unit, onStartTyping: () -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
     Surface(
         shape = RoundedCornerShape(32.dp),
@@ -456,7 +460,10 @@ private fun Composer(busy: Boolean, onSend: (String) -> Unit, onStop: () -> Unit
         Row(Modifier.padding(start = 8.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextField(
                 value = text,
-                onValueChange = { text = it },
+                onValueChange = {
+                    if (text.isEmpty() && it.isNotEmpty()) onStartTyping()
+                    text = it
+                },
                 placeholder = { Text(stringResource(R.string.home_input_hint, agentName())) },
                 modifier = Modifier.weight(1f),
                 maxLines = 5,
@@ -516,7 +523,7 @@ private fun VoicePanel(voice: VoiceStatus, onCancel: () -> Unit) {
         }
         Spacer(Modifier.height(20.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Waveform(voice.level, color = Color.White)
+            Waveform(color = Color.White)
             Spacer(Modifier.size(24.dp))
             FilledTonalIconButton(onClick = onCancel, modifier = Modifier.size(56.dp)) {
                 Icon(Icons.Rounded.Close, stringResource(R.string.home_cancel))

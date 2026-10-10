@@ -5,6 +5,9 @@
     <string name="channel_alerts">Alerts</string>
 
     <string name="confirm_generic">Do you want me to %1$s?</string>
+    <string name="confirm_call">Call %1$s?</string>
+    <string name="confirm_sms">Send \"%1$s\" to %2$s?</string>
+    <string name="confirm_reply">Reply \"%1$s\"?</string>
     <string name="error_backend_auth">Your agent backend rejected the key. Check it in settings.</string>
     <string name="error_backend_rate_limit">Your agent backend is limiting requests. Try again in a moment.</string>
     <string name="error_backend">Your agent backend returned an error: %1$s</string>
@@ -371,6 +374,11 @@
     <string name="activity_duration">Took %1$s</string>
     <string name="activity_details">Details</string>
     <string name="health_checking">Checking…</string>
+    <string name="health_language_pill">Speech language missing</string>
+    <string name="health_language_title">Download the speech language</string>
+    <string name="health_language_body">On-device recognition has no %1$s language pack, so voice commands fail. Download it, or pick cloud recognition in Settings, Voice.</string>
+    <string name="health_action_download">Download</string>
+    <string name="voice_language_missing">I cannot understand speech yet. Open Marionette and download the speech language.</string>
     <string name="health_offline_pill">Offline</string>
     <string name="health_offline_title">No internet connection</string>
     <string name="health_offline_body">%1$s needs the internet to reach its backend. Turn on mobile data or Wi-Fi.</string>

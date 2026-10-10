@@ -24,12 +24,12 @@ import androidx.compose.ui.unit.dp
 import dev.marionette.ui.theme.Brand
 
 @Composable
-fun ListeningGlow(visible: Boolean, level: Float, modifier: Modifier = Modifier, height: Dp = 220.dp) {
+fun ListeningGlow(visible: Boolean, modifier: Modifier = Modifier, height: Dp = 220.dp) {
     val alpha by animateFloatAsState(if (visible) 1f else 0f, tween(450), label = "glowAlpha")
     if (alpha == 0f) return
     val transition = rememberInfiniteTransition(label = "glow")
     val shift by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(4000, easing = LinearEasing)), label = "shift")
-    val energy by animateFloatAsState((level * 8f).coerceIn(0f, 1f), spring(dampingRatio = 0.6f, stiffness = 200f), label = "energy")
+    val energy by rememberMicEnergy(8f, spring(dampingRatio = 0.6f, stiffness = 200f))
     Canvas(modifier.fillMaxWidth().height(height).graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
         val w = size.width
         val colors = Brand.glowColors + Brand.glowColors.first()

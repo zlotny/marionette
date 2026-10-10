@@ -154,14 +154,14 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.thinking] = s.thinking
         p[Keys.recentModels] = s.recentModels.joinToString("\n")
         Keys.credentials.forEach { (credential, key) ->
-            s.credentials[credential]?.takeIf { it.isNotBlank() }?.let { p[key] = SecretStore.encrypt(it) } ?: p.remove(key)
+            s.credentials[credential]?.takeIf { it.isNotBlank() }?.let { p[key] = SecretStore.seal(it, p[key]) } ?: p.remove(key)
         }
         p.remove(Keys.legacyApiKey)
         p.remove(Keys.legacySttApiKey)
         p.remove(Keys.legacyGooglePlacesKey)
         p[Keys.continueConversation] = s.continueConversation
-        p[Keys.gatewayDeviceKey] = SecretStore.encrypt(s.gatewayDeviceKey)
-        p[Keys.gatewayDeviceToken] = SecretStore.encrypt(s.gatewayDeviceToken)
+        p[Keys.gatewayDeviceKey] = SecretStore.seal(s.gatewayDeviceKey, p[Keys.gatewayDeviceKey])
+        p[Keys.gatewayDeviceToken] = SecretStore.seal(s.gatewayDeviceToken, p[Keys.gatewayDeviceToken])
         p[Keys.gatewayPairedUrl] = s.gatewayPairedUrl
         p[Keys.sendContext] = s.sendContext
         p[Keys.sendInstructions] = s.sendInstructions

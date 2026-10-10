@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.content.res.Configuration
 import android.content.res.Resources
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -23,6 +22,7 @@ import androidx.lifecycle.lifecycleScope
 import dev.marionette.BuildConfig
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.settings.Languages
 import dev.marionette.agent.ConfirmationRequest
 import dev.marionette.agent.Turn
 import dev.marionette.agent.TurnSource
@@ -34,6 +34,7 @@ import dev.marionette.ui.MainActivity
 import dev.marionette.voice.stt.AndroidSpeechToText
 import dev.marionette.voice.stt.OpenAiSpeechToText
 import dev.marionette.voice.stt.SpeechToText
+import dev.marionette.voice.stt.SttException
 import dev.marionette.voice.stt.SttSession
 import dev.marionette.voice.wake.AcousticWakeDetector
 import dev.marionette.voice.wake.SpeechEmbedder
@@ -60,7 +61,6 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.Locale
 import kotlin.math.sqrt
 
 class VoiceService : LifecycleService() {
@@ -110,6 +110,9 @@ class VoiceService : LifecycleService() {
         graph.confirmations.voiceHandler = ::confirmByVoice
         lifecycleScope.launch {
             VoiceBus.status.map { it.phase }.distinctUntilChanged().collect { updateNotification() }
+        }
+        lifecycleScope.launch {
+            graph.settings.settings.map { Triple(it.language, it.sttEngine, it.sttCloud) }.distinctUntilChanged().collect { checkSpeechLanguage() }
         }
     }
 
@@ -219,8 +222,6 @@ class VoiceService : LifecycleService() {
         val pcm = ShortArray(AudioSpec.CHUNK_SAMPLES)
         val samples = FloatArray(AudioSpec.CHUNK_SAMPLES)
         var lastLevelPublish = 0L
-        var lastScorePublish = 0L
-        var windowScore = Float.POSITIVE_INFINITY
         var lastCallCheck = 0L
         record.startRecording()
         VoiceBus.update { it.copy(inputDevice = record.routedDevice?.productName?.toString()) }
@@ -244,23 +245,16 @@ class VoiceService : LifecycleService() {
                     if (inCall()) {
                         Logger.i("Call in progress, microphone released")
                         commandSink?.endpoint?.complete(Endpoint.CANCELLED)
-                        VoiceBus.update { it.copy(level = 0f) }
+                        VoiceBus.level(0f)
                         return true
                     }
                 }
                 if (now - lastLevelPublish > 60) {
-                    val level = sqrt(sum / n).toFloat()
-                    VoiceBus.update { it.copy(level = level) }
+                    VoiceBus.level(sqrt(sum / n).toFloat())
                     lastLevelPublish = now
                 }
                 when (mode) {
                     Mode.WAKE, Mode.BUSY -> detector?.accept(chunk, graph.settings.current.wakeThreshold)?.let { (score, fired) ->
-                        windowScore = minOf(windowScore, score)
-                        if (now - lastScorePublish > 1000) {
-                            VoiceBus.update { it.copy(lastScore = windowScore) }
-                            windowScore = Float.POSITIVE_INFINITY
-                            lastScorePublish = now
-                        }
                         if (fired) {
                             Logger.i("Wake word detected (score $score)")
                             VoiceBus.update { it.copy(lastWakeAt = now) }
@@ -334,6 +328,7 @@ class VoiceService : LifecycleService() {
         acquireWakeLock()
         try {
             Logger.i("Voice turn from $source")
+            graph.settings.current.let { s -> if (s.sendContext) lifecycleScope.launch { graph.device.prefetch(s.contextFields, s.language) } }
             graph.playback.hold()
             var text = if (readAloud == null) {
                 listen(NO_SPEECH_MILLIS, earcon = true)
@@ -454,9 +449,12 @@ class VoiceService : LifecycleService() {
         lifecycleScope.launch { playEarcon(Earcon.WORKING) }
         VoiceBus.update { it.copy(phase = VoicePhase.TRANSCRIBING) }
         return runCatching { session.finish() }
+            .onSuccess { VoiceBus.update { s -> s.copy(speechLanguageMissing = false) } }
             .onFailure {
                 Logger.w("STT failed", it)
-                VoiceBus.update { s -> s.copy(lastError = it.message) }
+                val missing = (it as? SttException)?.languageMissing == true
+                VoiceBus.update { s -> s.copy(lastError = it.message, speechLanguageMissing = missing || s.speechLanguageMissing) }
+                if (missing) speak(spoken(R.string.voice_language_missing))
             }
             .getOrDefault("")
             .also { text -> Logger.i("Heard: $text") }
@@ -489,17 +487,18 @@ class VoiceService : LifecycleService() {
         return HoldPhrases.pick(phrases, lastHoldPhrase)?.also { lastHoldPhrase = it }
     }
 
-    private fun localizedResources(): Resources {
-        val language = graph.settings.current.language
-        if (language.isBlank()) return resources
-        val config = Configuration(resources.configuration).apply { setLocale(Locale.forLanguageTag(language)) }
-        return createConfigurationContext(config).resources
-    }
+    private fun localizedResources(): Resources = Languages.resources(this, graph.settings.current.language)
 
     private fun spoken(id: Int): String = localizedResources().getString(id)
 
     private suspend fun playEarcon(earcon: Earcon) {
         if (graph.settings.current.earcons) runCatching { Earcons.play(earcon) }
+    }
+
+    private suspend fun checkSpeechLanguage() {
+        if (sttEngine() !is AndroidSpeechToText) return VoiceBus.update { it.copy(speechLanguageMissing = false) }
+        val installed = AndroidSpeechToText.languageInstalled(this, graph.settings.current.language) ?: return
+        VoiceBus.update { it.copy(speechLanguageMissing = !installed) }
     }
 
     private fun sttEngine(): SpeechToText {

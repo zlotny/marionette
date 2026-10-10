@@ -1,7 +1,6 @@
 package dev.marionette.ui.voice
 
 import android.content.Context
-import android.content.res.Configuration
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -85,10 +84,7 @@ fun rememberSpeaker(): Speaker {
     return speaker
 }
 
-fun localizedResources(context: Context, language: String): Resources {
-    val config = Configuration(context.resources.configuration).apply { setLocale(Languages.locale(language)) }
-    return context.createConfigurationContext(config).resources
-}
+fun localizedResources(context: Context, language: String): Resources = Languages.resources(context, language)
 
 fun localizedString(context: Context, language: String, id: Int, vararg args: Any): String =
     localizedResources(context, language).getString(id, *args)
@@ -193,7 +189,6 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                         phrase = phrase,
                         count = voice.enrolledPhrases,
                         minimum = if (appending) 1 else ENROLL_MINIMUM,
-                        level = voice.level,
                         saving = saving,
                         onFinish = {
                             saving = true
@@ -218,14 +213,14 @@ private enum class EnrollStage { IDLE, RECORDING, READY }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun Recording(phrase: String, count: Int, minimum: Int, level: Float, saving: Boolean, onFinish: () -> Unit, onCancel: () -> Unit) {
+private fun Recording(phrase: String, count: Int, minimum: Int, saving: Boolean, onFinish: () -> Unit, onCancel: () -> Unit) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (saving) {
             LoadingIndicator(Modifier.size(64.dp))
             Text(stringResource(R.string.wake_saving), style = MaterialTheme.typography.titleMedium)
             return@Column
         }
-        VoiceOrb(size = 96.dp, level = level)
+        VoiceOrb(size = 96.dp, listening = true)
         Text(
             stringResource(R.string.wake_say_now, phrase.ifBlank { stringResource(R.string.wake_phrase) }),
             style = MaterialTheme.typography.titleMedium,
@@ -240,7 +235,7 @@ private fun Recording(phrase: String, count: Int, minimum: Int, level: Float, sa
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Waveform(level)
+        Waveform()
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onCancel) { Text(stringResource(R.string.action_cancel)) }
             Spacer(Modifier.size(8.dp))

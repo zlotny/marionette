@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.marionette.MarionetteApp
 import dev.marionette.agent.TurnSource
+import kotlinx.coroutines.launch
 
 class HomeViewModel : ViewModel() {
     private val graph = MarionetteApp.graph
@@ -18,6 +19,11 @@ class HomeViewModel : ViewModel() {
     val picker = ModelPicker(graph.settings, graph.conversation, viewModelScope)
 
     fun checkHealth() = graph.health.check()
+
+    fun warmUp() {
+        val s = settings.value
+        if (s.sendContext) viewModelScope.launch { graph.device.prefetch(s.contextFields, s.language) }
+    }
 
     fun send(text: String) {
         val trimmed = text.trim()

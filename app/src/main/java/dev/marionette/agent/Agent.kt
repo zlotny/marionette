@@ -1,6 +1,7 @@
 package dev.marionette.agent
 
 import android.content.Context
+import android.content.res.Resources
 import dev.marionette.R
 import dev.marionette.core.Logger
 import dev.marionette.core.jsonOf
@@ -20,6 +21,7 @@ import dev.marionette.llm.Provider
 import dev.marionette.llm.Thinking
 import dev.marionette.llm.ToolCall
 import dev.marionette.settings.AppSettings
+import dev.marionette.settings.Languages
 import dev.marionette.settings.SettingsStore
 import dev.marionette.tools.ToolContext
 import dev.marionette.tools.ToolRegistry
@@ -36,6 +38,8 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -130,16 +134,11 @@ class Agent(
 
     private suspend fun loop(id: Long, input: String, source: TurnSource, trace: TraceBuilder, onProgress: (String) -> Unit, onQuiet: () -> Unit): String {
         val s = settings.current
-        val contextBlock = if (s.sendContext) ContextBlock.render(device.snapshot(s.contextFields, s.language), s.contextFields) else ""
-        val system = prompt.build(s, contextBlock)
-        trace.contextBlock = contextBlock
-        trace.system = system
         val chat = conversation.current.value
         val own = chat.overrideProvider == s.provider.name
         val config = s.backendFor(chat.model.takeIf { own }, chat.thinking.takeIf { own })
         trace.backend = s.provider.name + " " + listOf(config.model, config.agentModel, config.thinking?.id.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
         val user = sessionUser(chat.id)
-        if (s.provider == Provider.OPENCLAW) syncSessionThinking(s, chat, config.thinking, user)
         val backend = BackendFactory.create(config, sessionUser = user)
         val toolContext = ToolContext(context, device, launcher, s, playback)
         val specs = registry.specs(s.disabledTools)
@@ -162,7 +161,17 @@ class Agent(
                 is LinkEvent.Tool -> if (registry[event.name] == null) showAgentTool(id, event)
             }
         }
-        val watcher = if (s.liveProgress) watchProgress(s, user, linkEvent) else null
+        val (contextBlock, watcher) = coroutineScope {
+            val block = async { if (s.sendContext) ContextBlock.render(device.snapshot(s.contextFields, s.language), s.contextFields) else "" }
+            val link = async {
+                if (s.provider == Provider.OPENCLAW) syncSessionThinking(s, chat, config.thinking, user)
+                if (s.liveProgress) watchProgress(s, user, linkEvent) else null
+            }
+            block.await() to link.await()
+        }
+        val system = prompt.build(s, contextBlock)
+        trace.contextBlock = contextBlock
+        trace.system = system
         try {
             repeat(MAX_ROUNDS) { round ->
                 val started = System.currentTimeMillis()
@@ -252,7 +261,12 @@ class Agent(
                 ready.complete(Unit)
             }
         }
-        withTimeoutOrNull(LINK_READY_MILLIS) { ready.await() }
+        try {
+            withTimeoutOrNull(LINK_READY_MILLIS) { ready.await() }
+        } catch (e: CancellationException) {
+            job.cancel()
+            throw e
+        }
         return job
     }
 
@@ -264,7 +278,8 @@ class Agent(
         val started = System.currentTimeMillis()
         val needsConfirmation = tool != null && tool.requiresConfirmation && call.name !in ctx.settings.confirmationDisabled
         val result = if (needsConfirmation) {
-            val question = tool!!.confirmationPrompt(args) ?: context.getString(R.string.confirm_generic, summary.ifBlank { call.name })
+            val res = spokenResources()
+            val question = tool!!.confirmationPrompt(args, res) ?: res.getString(R.string.confirm_generic, summary.ifBlank { call.name })
             val approved = confirmations.confirm(call.name, question, viaVoice = source == TurnSource.VOICE)
             if (approved) registry.execute(call.name, call.arguments, ctx) else ToolResults.error("declined_by_user", "The user said no. Do not retry.")
         } else {
@@ -285,6 +300,8 @@ class Agent(
         return result
     }
 
+    private fun spokenResources(): Resources = Languages.resources(context, settings.current.language)
+
     private fun trimHistory() {
         while (history.size > MAX_HISTORY) {
             history.removeAt(0)
@@ -299,13 +316,13 @@ class Agent(
     }
 
     private fun friendlyError(e: Exception): String = when {
-        e is LlmException && (e.status == 401 || e.status == 403) -> context.getString(R.string.error_backend_auth)
+        e is LlmException && (e.status == 401 || e.status == 403) -> spokenResources().getString(R.string.error_backend_auth)
         e is LlmException && e.status == 429 && e.retryAfterSeconds != null ->
-            context.getString(R.string.error_backend_rate_limit_wait, e.retryAfterSeconds.coerceAtLeast(1))
-        e is LlmException && e.status == 429 -> context.getString(R.string.error_backend_rate_limit)
-        e is LlmException -> context.getString(R.string.error_backend, e.message ?: "")
-        e is IOException -> context.getString(R.string.error_network)
-        else -> context.getString(R.string.error_generic)
+            spokenResources().getString(R.string.error_backend_rate_limit_wait, e.retryAfterSeconds.coerceAtLeast(1))
+        e is LlmException && e.status == 429 -> spokenResources().getString(R.string.error_backend_rate_limit)
+        e is LlmException -> spokenResources().getString(R.string.error_backend, e.message ?: "")
+        e is IOException -> spokenResources().getString(R.string.error_network)
+        else -> spokenResources().getString(R.string.error_generic)
     }
 
     private class TraceBuilder(val id: Long, val input: String, val source: TurnSource) {

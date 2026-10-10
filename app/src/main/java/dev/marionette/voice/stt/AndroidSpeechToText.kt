@@ -9,6 +9,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.speech.RecognitionListener
+import android.speech.RecognitionSupport
+import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import dev.marionette.core.Logger
@@ -108,7 +110,7 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
                 if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                     result.complete(latestPartial)
                 } else if (!result.isCompleted) {
-                    result.completeExceptionally(SttException(errorName(error)))
+                    result.completeExceptionally(SttException(errorName(error), languageMissing = error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE))
                 }
             }
         }
@@ -154,6 +156,37 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
 
     companion object {
         private const val FINISH_TIMEOUT_MILLIS = 6_000L
+        private const val SUPPORT_TIMEOUT_MILLIS = 3_000L
+
+        fun downloadLanguage(context: Context, language: String): Boolean {
+            if (Build.VERSION.SDK_INT < 33 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) return false
+            val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            return runCatching { recognizer.triggerModelDownload(languageIntent(language)) }
+                .onFailure { Logger.w("Speech model download failed", it) }
+                .also { recognizer.destroy() }
+                .isSuccess
+        }
+
+        suspend fun languageInstalled(context: Context, language: String): Boolean? = withContext(Dispatchers.Main) {
+            if (Build.VERSION.SDK_INT < 34 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) return@withContext null
+            val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            val tag = language.ifBlank { Locale.getDefault().toLanguageTag() }
+            val answer = CompletableDeferred<Boolean?>()
+            recognizer.checkRecognitionSupport(languageIntent(language), context.mainExecutor, object : RecognitionSupportCallback {
+                override fun onSupportResult(support: RecognitionSupport) {
+                    answer.complete(support.installedOnDeviceLanguages.any { it.equals(tag, ignoreCase = true) })
+                }
+
+                override fun onError(error: Int) {
+                    answer.complete(null)
+                }
+            })
+            withTimeoutOrNull(SUPPORT_TIMEOUT_MILLIS) { answer.await() }.also { recognizer.destroy() }
+        }
+
+        private fun languageIntent(language: String) = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .apply { if (language.isNotBlank()) putExtra(RecognizerIntent.EXTRA_LANGUAGE, language) }
 
         fun errorName(code: Int): String = when (code) {
             SpeechRecognizer.ERROR_AUDIO -> "audio error"

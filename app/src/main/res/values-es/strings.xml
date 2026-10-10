@@ -4,6 +4,9 @@
     <string name="channel_alerts">Avisos</string>
 
     <string name="confirm_generic">¿Confirmas esta acción: %1$s?</string>
+    <string name="confirm_call">¿Llamo a %1$s?</string>
+    <string name="confirm_sms">¿Envío \"%1$s\" a %2$s?</string>
+    <string name="confirm_reply">¿Respondo \"%1$s\"?</string>
     <string name="error_backend_auth">El backend de tu agente ha rechazado la clave. Revísala en ajustes.</string>
     <string name="error_backend_rate_limit">El backend de tu agente está limitando las peticiones. Inténtalo de nuevo en un momento.</string>
     <string name="error_backend">El backend de tu agente ha devuelto un error: %1$s</string>
@@ -370,6 +373,11 @@
     <string name="activity_duration">Tardó %1$s</string>
     <string name="activity_details">Detalles</string>
     <string name="health_checking">Comprobando…</string>
+    <string name="health_language_pill">Falta el idioma de voz</string>
+    <string name="health_language_title">Descarga el idioma de voz</string>
+    <string name="health_language_body">El reconocimiento en el teléfono no tiene el paquete de %1$s, así que los comandos de voz fallan. Descárgalo o elige el reconocimiento en la nube en Ajustes, Voz.</string>
+    <string name="health_action_download">Descargar</string>
+    <string name="voice_language_missing">Todavía no entiendo la voz. Abre Marionette y descarga el idioma de voz.</string>
     <string name="health_offline_pill">Sin internet</string>
     <string name="health_offline_title">Sin conexión a internet</string>
     <string name="health_offline_body">%1$s necesita internet para llegar a su backend. Activa los datos móviles o el Wi-Fi.</string>

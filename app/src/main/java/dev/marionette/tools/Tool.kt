@@ -1,6 +1,7 @@
 package dev.marionette.tools
 
 import android.content.Context
+import android.content.res.Resources
 import dev.marionette.agent.DeviceSnapshotProvider
 import dev.marionette.core.jsonOf
 import dev.marionette.launch.LaunchStatus
@@ -28,7 +29,7 @@ interface Tool {
     val requiresConfirmation: Boolean get() = false
     val permissions: List<String> get() = emptyList()
 
-    fun confirmationPrompt(args: JsonObject): String? = null
+    fun confirmationPrompt(args: JsonObject, res: Resources): String? = null
 
     fun summary(args: JsonObject): String = ""
 

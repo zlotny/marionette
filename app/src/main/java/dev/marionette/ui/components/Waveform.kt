@@ -20,8 +20,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun Waveform(level: Float, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary, bars: Int = 5) {
-    val energy by animateFloatAsState((level * 10f).coerceIn(0.08f, 1f), spring(dampingRatio = 0.55f, stiffness = 400f), label = "wave")
+fun Waveform(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary, bars: Int = 5) {
+    val energy by rememberMicEnergy(10f, spring(dampingRatio = 0.55f, stiffness = 400f), floor = 0.08f)
     val transition = rememberInfiniteTransition(label = "waveIdle")
     val phase by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "phase")
     Canvas(modifier.size(width = 36.dp, height = 24.dp)) {

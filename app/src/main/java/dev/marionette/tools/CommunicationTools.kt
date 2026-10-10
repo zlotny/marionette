@@ -1,5 +1,7 @@
 package dev.marionette.tools
 
+import dev.marionette.R
+import android.content.res.Resources
 import android.Manifest
 import android.content.ContentResolver
 import android.content.Context
@@ -93,7 +95,7 @@ class CallTool : Tool {
 
     override fun summary(args: JsonObject) = args.string("name") ?: args.string("number").orEmpty()
 
-    override fun confirmationPrompt(args: JsonObject) = "Call ${summary(args)}?"
+    override fun confirmationPrompt(args: JsonObject, res: Resources): String = res.getString(R.string.confirm_call, summary(args))
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val number = args.string("number")?.filter { it.isDigit() || it == '+' || it == '*' || it == '#' }?.takeIf { it.isNotEmpty() }
@@ -123,7 +125,8 @@ class SendSmsTool : Tool {
 
     override fun summary(args: JsonObject) = args.string("name") ?: args.string("number").orEmpty()
 
-    override fun confirmationPrompt(args: JsonObject) = "Send \"${args.string("text").orEmpty()}\" to ${summary(args)}?"
+    override fun confirmationPrompt(args: JsonObject, res: Resources): String =
+        res.getString(R.string.confirm_sms, args.string("text").orEmpty(), summary(args))
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val number = args.string("number")?.filter { it.isDigit() || it == '+' }?.takeIf { it.isNotEmpty() }

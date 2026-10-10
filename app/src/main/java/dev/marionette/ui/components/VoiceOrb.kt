@@ -28,11 +28,11 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
-fun VoiceOrb(modifier: Modifier = Modifier, size: Dp = 160.dp, level: Float = 0f, active: Boolean = true) {
+fun VoiceOrb(modifier: Modifier = Modifier, size: Dp = 160.dp, listening: Boolean = false, active: Boolean = true) {
     val transition = rememberInfiniteTransition(label = "orb")
     val angle by transition.animateFloat(0f, 360f, infiniteRepeatable(tween(9000, easing = LinearEasing)), label = "angle")
     val breathe by transition.animateFloat(0.92f, 1.04f, infiniteRepeatable(tween(2400), RepeatMode.Reverse), label = "breathe")
-    val energy by animateFloatAsState((level * 9f).coerceIn(0f, 1f), spring(dampingRatio = 0.5f, stiffness = 300f), label = "energy")
+    val energy by rememberMicEnergy(9f, spring(dampingRatio = 0.5f, stiffness = 300f), enabled = listening)
     val presence by animateFloatAsState(if (active) 1f else 0.55f, tween(600), label = "presence")
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(

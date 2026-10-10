@@ -142,18 +142,23 @@ class Conversation(private val directory: File? = null, private val scope: Corou
     private fun edit(persist: (Chat) -> Boolean = { true }, transform: (Chat) -> Chat) {
         val next = _current.updateAndGet(transform)
         _turns.value = _current.value.turns
-        if (next.turns.isNotEmpty()) {
-            _chats.update { list -> (list.filterNot { it.id == next.id } + next).sortedByDescending { it.updated } }
-            if (persist(next)) save(next)
-        }
+        if (next.turns.isEmpty()) return
+        val settled = persist(next)
+        if (!settled && _chats.value.any { it.id == next.id }) return
+        _chats.update { list -> (list.filterNot { it.id == next.id } + next).sortedByDescending { it.updated } }
+        if (settled) save(next)
     }
 
     private fun save(chat: Chat) {
         val dir = directory ?: return
         scope?.launch(Dispatchers.IO) {
             io.withLock {
-                runCatching { File(dir, "${chat.id}.json").writeText(AppJson.encodeToString(Chat.serializer(), chat)) }
-                    .onFailure { Logger.w("Chat save failed", it) }
+                val latest = _chats.value.firstOrNull { it.id == chat.id } ?: return@withLock
+                runCatching {
+                    val temp = File(dir, "${chat.id}.json.tmp")
+                    temp.writeText(AppJson.encodeToString(Chat.serializer(), latest))
+                    if (!temp.renameTo(File(dir, "${chat.id}.json"))) error("rename failed")
+                }.onFailure { Logger.w("Chat save failed", it) }
             }
         }
     }

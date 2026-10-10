@@ -21,38 +21,62 @@ class AcousticWakeDetector(private val embedder: SpeechEmbedder, templates: List
             previous = column
             return column.last() / template.size
         }
+
+        fun reset() {
+            previous.fill(Float.POSITIVE_INFINITY)
+            beforePrevious.fill(Float.POSITIVE_INFINITY)
+        }
     }
 
     private val tracks = templates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map(::Track)
-    private val pending = ArrayList<Float>()
-    private val context = FloatArray(MEL_CONTEXT_SAMPLES)
+    private val pending = FloatArray(HOP_SAMPLES * 4)
+    private var pendingCount = 0
+    private val melInput = FloatArray(MEL_CONTEXT_SAMPLES + HOP_SAMPLES)
     private val melFrames = ArrayDeque<FloatArray>()
     private var framesSinceDetection = Int.MAX_VALUE / 2
+    private var quietHops = Int.MAX_VALUE / 2
 
     val templateCount: Int get() = tracks.size
 
     fun accept(samples: FloatArray, threshold: Float): Pair<Float, Boolean>? {
-        for (s in samples) pending += s * 32768f
         var best: Float? = null
         var fired = false
-        while (pending.size >= HOP_SAMPLES) {
-            val hop = FloatArray(HOP_SAMPLES) { pending[it] }
-            pending.subList(0, HOP_SAMPLES).clear()
-            val mel = embedder.mel(context + hop)
-            hop.copyInto(context, 0, HOP_SAMPLES - MEL_CONTEXT_SAMPLES)
-            mel.takeLast(HOP_SAMPLES / 160).forEach { melFrames.addLast(it) }
-            while (melFrames.size > SpeechEmbedder.WINDOW) melFrames.removeFirst()
-            if (melFrames.size < SpeechEmbedder.WINDOW) continue
-            val frame = embedder.embed(listOf(melFrames.toList())).first()
-            val score = tracks.minOf { it.push(frame) }
-            framesSinceDetection++
-            best = minOf(best ?: score, score)
-            if (score < threshold && framesSinceDetection * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS) {
-                framesSinceDetection = 0
-                fired = true
+        var offset = 0
+        while (offset < samples.size) {
+            val take = minOf(samples.size - offset, pending.size - pendingCount)
+            for (i in 0 until take) pending[pendingCount + i] = samples[offset + i] * 32768f
+            pendingCount += take
+            offset += take
+            while (pendingCount >= HOP_SAMPLES) {
+                processHop(threshold)?.let { (score, hit) ->
+                    best = minOf(best ?: score, score)
+                    fired = fired || hit
+                }
+                pending.copyInto(pending, 0, HOP_SAMPLES, pendingCount)
+                pendingCount -= HOP_SAMPLES
             }
         }
         return best?.let { it to fired }
+    }
+
+    private fun processHop(threshold: Float): Pair<Float, Boolean>? {
+        pending.copyInto(melInput, MEL_CONTEXT_SAMPLES, 0, HOP_SAMPLES)
+        val mel = embedder.mel(melInput)
+        melInput.copyInto(melInput, 0, HOP_SAMPLES, HOP_SAMPLES + MEL_CONTEXT_SAMPLES)
+        mel.takeLast(HOP_SAMPLES / 160).forEach { melFrames.addLast(it) }
+        while (melFrames.size > SpeechEmbedder.WINDOW) melFrames.removeFirst()
+        quietHops = if (SilenceGate.isQuiet(pending, HOP_SAMPLES)) quietHops + 1 else 0
+        framesSinceDetection++
+        if (melFrames.size < SpeechEmbedder.WINDOW) return null
+        if (quietHops > WINDOW_HOPS) {
+            tracks.forEach { it.reset() }
+            return null
+        }
+        val frame = embedder.embed(listOf(melFrames.toList())).first()
+        val score = tracks.minOf { it.push(frame) }
+        val hit = score < threshold && framesSinceDetection * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
+        if (hit) framesSinceDetection = 0
+        return score to hit
     }
 
     companion object {
@@ -60,6 +84,7 @@ class AcousticWakeDetector(private val embedder: SpeechEmbedder, templates: List
         private const val MEL_CONTEXT_SAMPLES = 480
         private const val MIN_TEMPLATE_FRAMES = 3
         private const val REFRACTORY_SECONDS = 1.5f
+        private const val WINDOW_HOPS = SpeechEmbedder.WINDOW * 160 / HOP_SAMPLES + 1
 
         private fun dot(a: FloatArray, b: FloatArray): Float {
             var s = 0f

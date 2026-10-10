@@ -12,13 +12,12 @@ enum class TriggerSource { WAKE_WORD, HEADSET, ASSIST, BUTTON, NOTIFICATION }
 data class VoiceStatus(
     val phase: VoicePhase = VoicePhase.OFF,
     val partial: String = "",
-    val level: Float = 0f,
     val wakeArmed: Boolean = false,
     val templateCount: Int = 0,
     val enrolledPhrases: Int = 0,
     val inputDevice: String? = null,
     val lastError: String? = null,
-    val lastScore: Float? = null,
+    val speechLanguageMissing: Boolean = false,
     val lastWakeAt: Long = 0,
 )
 
@@ -27,4 +26,11 @@ object VoiceBus {
     val status: StateFlow<VoiceStatus> = _status.asStateFlow()
 
     fun update(transform: (VoiceStatus) -> VoiceStatus) = _status.update(transform)
+
+    private val _level = MutableStateFlow(0f)
+    val level: StateFlow<Float> = _level.asStateFlow()
+
+    fun level(value: Float) {
+        _level.value = value
+    }
 }

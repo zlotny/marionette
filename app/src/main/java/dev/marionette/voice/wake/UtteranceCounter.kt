@@ -13,8 +13,9 @@ class UtteranceCounter(private val rate: Int) {
         for (s in samples) sum += s * s
         val rms = sqrt(sum / samples.size).toFloat()
         val seconds = samples.size.toFloat() / rate
-        floor = if (floor == 0f || rms < floor) rms else floor + (rms - floor) * 0.01f
-        if (rms > max(floor * 4f, MIN_RMS)) {
+        val speaking = rms > max(floor * 4f, MIN_RMS)
+        if (floor == 0f || rms < floor) floor = rms else if (!speaking || speechSeconds > MAX_SECONDS) floor += (rms - floor) * 0.01f
+        if (speaking) {
             speechSeconds += seconds + silenceSeconds
             silenceSeconds = 0f
             return false

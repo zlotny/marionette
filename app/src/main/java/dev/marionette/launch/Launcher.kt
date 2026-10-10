@@ -26,8 +26,11 @@ class Launcher(private val context: Context, private val isLocked: () -> Boolean
         val target = Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (!unlock || !isLocked()) return start(target, label)
         val launch = PendingLaunch(target, label, CompletableDeferred())
+        pending?.result?.complete(LaunchStatus.FAILED)
         pending = launch
         armUnlockFallback()
+        main.removeCallbacks(expirePending)
+        main.postDelayed(expirePending, PENDING_TTL_MILLIS)
         val vis = MarionetteVoiceInteractionService.instance
         if (vis == null) {
             Logger.w("Launch $label while locked: assistant service not bound, waiting for unlock")
@@ -42,8 +45,7 @@ class Launcher(private val context: Context, private val isLocked: () -> Boolean
 
     fun onKeyguardDismissed(activity: Context) {
         val launch = pending ?: return
-        pending = null
-        disarmUnlockFallback()
+        clearPending()
         val status = start(launch.intent, launch.label, activity)
         launch.result.complete(status)
     }
@@ -67,15 +69,32 @@ class Launcher(private val context: Context, private val isLocked: () -> Boolean
         if (unlockReceiver != null) return
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
-                val launch = pending ?: return disarmUnlockFallback()
-                pending = null
-                disarmUnlockFallback()
-                Logger.i("Unlock fallback starts ${launch.label}")
-                launch.result.complete(start(launch.intent, launch.label))
+                main.postDelayed(runFallback, FALLBACK_GRACE_MILLIS)
             }
         }
         ContextCompat.registerReceiver(context, receiver, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_EXPORTED)
         unlockReceiver = receiver
+    }
+
+    private val runFallback = Runnable {
+        val launch = pending ?: return@Runnable disarmUnlockFallback()
+        clearPending()
+        Logger.i("Unlock fallback starts ${launch.label}")
+        launch.result.complete(start(launch.intent, launch.label))
+    }
+
+    private val expirePending = Runnable {
+        val launch = pending ?: return@Runnable
+        Logger.i("Pending launch ${launch.label} expired")
+        clearPending()
+        launch.result.complete(LaunchStatus.FAILED)
+    }
+
+    private fun clearPending() {
+        pending = null
+        main.removeCallbacks(runFallback)
+        main.removeCallbacks(expirePending)
+        disarmUnlockFallback()
     }
 
     private fun disarmUnlockFallback() {
@@ -86,5 +105,7 @@ class Launcher(private val context: Context, private val isLocked: () -> Boolean
     companion object {
         const val EXTRA_LAUNCH = "dev.marionette.LAUNCH"
         private const val DISMISS_TIMEOUT_MILLIS = 6_000L
+        private const val FALLBACK_GRACE_MILLIS = 600L
+        private const val PENDING_TTL_MILLIS = 10 * 60_000L
     }
 }
