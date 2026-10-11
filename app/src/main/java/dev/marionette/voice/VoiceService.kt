@@ -656,7 +656,7 @@ class VoiceService : LifecycleService() {
         private const val HOLD_MILLIS = 2_000L
         private const val PULSE_MILLIS = 1_600L
         private const val CONFIRM_TIMEOUT_MILLIS = 5_000L
-        private const val MAX_COMMAND_MILLIS = 15_000L
+        private const val MAX_COMMAND_MILLIS = 120_000L
         private const val TURN_WAKE_LOCK_MILLIS = 120_000L
         private const val SPEECH_PROBABILITY = 0.55f
         private const val SILENCE_PROBABILITY = 0.35f
