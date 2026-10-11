@@ -23,6 +23,8 @@ class VoiceModelCatalogTest {
         val flash = VoiceModelCatalog.tts("elevenlabs/eleven-flash-v2.5")!!
         assertEquals(1.08, flash.usdPerHour, 1e-9)
         assertTrue(VoiceModelCatalog.tts("elevenlabs/eleven-flash-v2")!!.englishOnly)
+        assertTrue(VoiceModelCatalog.tts("hexgrad/kokoro-82m")!!.englishOnly)
+        assertTrue(ModelTag.RECOMMENDED in VoiceModelCatalog.tts("x-ai/grok-voice-tts-1.0")!!.allTags)
     }
 
     @Test

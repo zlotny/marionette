@@ -35,8 +35,8 @@ enum class TtsCloud(
         listOf("marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"),
     ),
     OPENROUTER(
-        "OpenRouter", "https://openrouter.ai/api/v1", Provider.OPENROUTER, "google/gemini-3.8-flash-tts", "Kore",
-        listOf("google/gemini-3.8-flash-tts", "hexgrad/kokoro-82m", "elevenlabs/eleven-flash-v2.5", "microsoft/mai-voice-2.1-flash", "x-ai/grok-voice-tts-1.0"),
+        "OpenRouter", "https://openrouter.ai/api/v1", Provider.OPENROUTER, "x-ai/grok-voice-tts-1.0", "eve",
+        listOf("x-ai/grok-voice-tts-1.0", "elevenlabs/eleven-flash-v2.5", "microsoft/mai-voice-2.1-flash", "hexgrad/kokoro-82m", "google/gemini-3.8-flash-tts"),
         emptyList(),
     ),
 }

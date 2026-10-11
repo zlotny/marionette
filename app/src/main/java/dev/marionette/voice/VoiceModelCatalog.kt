@@ -43,13 +43,13 @@ object VoiceModelCatalog {
     )
 
     val tts = listOf(
-        TtsBenchmark("hexgrad/kokoro-82m", 0.30, 0.0006, tags = setOf(ModelTag.FASTEST, ModelTag.CHEAPEST)),
+        TtsBenchmark("hexgrad/kokoro-82m", 0.30, 0.0006, englishOnly = true, tags = setOf(ModelTag.FASTEST, ModelTag.CHEAPEST)),
         TtsBenchmark("elevenlabs/eleven-turbo-v2.5", 0.33, 0.02),
         TtsBenchmark("fish-audio/s1", 0.36, 0.015),
         TtsBenchmark("fish-audio/s2-pro", 0.37, 0.015),
         TtsBenchmark("fish-audio/s2.1-pro", 0.37, 0.015),
-        TtsBenchmark("x-ai/grok-voice-tts-1.0", 0.38, 0.015),
-        TtsBenchmark("elevenlabs/eleven-flash-v2.5", 0.43, 0.02, tags = setOf(ModelTag.RECOMMENDED)),
+        TtsBenchmark("x-ai/grok-voice-tts-1.0", 0.38, 0.015, tags = setOf(ModelTag.RECOMMENDED)),
+        TtsBenchmark("elevenlabs/eleven-flash-v2.5", 0.43, 0.02),
         TtsBenchmark("elevenlabs/eleven-flash-v2", 0.45, 0.02, englishOnly = true),
         TtsBenchmark("elevenlabs/eleven-turbo-v2", 0.49, 0.02, englishOnly = true),
         TtsBenchmark("mistralai/voxtral-mini-tts-2603", 0.50, 0.016),
