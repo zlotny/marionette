@@ -19,12 +19,13 @@ class FindPlacesTool(
     private val nominatim: NominatimClient = NominatimClient(),
 ) : Tool {
     override val name = "find_places"
+    override val readOnly = true
     override val category = ToolCategory.PLACES
     override val description =
         "Find places near the user or near a named place. Use for 'the nearest X', 'a gas station', 'McDonald's near Toledo', addresses. " +
             "Returns places sorted by distance from the search center, with coordinates for navigate."
     override val parameters = schema {
-        string("query", "Name or brand to match, e.g. \"McDonald's\", \"Repsol\", or a full address. Omit when only a category is wanted.")
+        string("query", "Name, brand, cuisine or diet to match, e.g. \"McDonald's\", \"Repsol\", \"sushi\", \"vegan\", or a full address. Cuisine and diet match one English word. Omit when only a category is wanted.")
         string("category", "Kind of place, when the user asks for a type of place.", enum = PlaceCategory.keys)
         string("near", "A named place or address to search around instead of the current location.")
         integer("radius_m", "Search radius in meters. Default 10000.")

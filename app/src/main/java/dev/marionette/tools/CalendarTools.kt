@@ -38,6 +38,7 @@ object LocalTimes {
 
 class ListEventsTool : Tool {
     override val name = "list_events"
+    override val readOnly = true
     override val category = ToolCategory.CALENDAR
     override val permissions = listOf(Manifest.permission.READ_CALENDAR)
     override val description = "List calendar events between two local times. Default: from now to the end of tomorrow."

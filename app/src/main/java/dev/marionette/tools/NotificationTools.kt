@@ -27,6 +27,7 @@ private fun listenerOrError(): Pair<MarionetteNotificationListener?, JsonObject?
 
 class ReadNotificationsTool : Tool {
     override val name = "read_notifications"
+    override val readOnly = true
     override val category = ToolCategory.NOTIFICATIONS
     override val description =
         "Read the current notifications (messages, missed calls, app alerts), newest first. Each has an id for reply_notification, " +

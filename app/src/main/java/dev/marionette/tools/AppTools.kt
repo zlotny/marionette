@@ -53,6 +53,7 @@ object InstalledApps {
 
 class ListAppsTool : Tool {
     override val name = "list_apps"
+    override val readOnly = true
     override val category = ToolCategory.APPS
     override val description = "List apps installed on the phone (label and package). Filter with query to keep the result short."
     override val parameters = schema {

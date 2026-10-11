@@ -27,6 +27,7 @@ interface Tool {
     val parameters: JsonObject
     val category: ToolCategory
     val requiresConfirmation: Boolean get() = false
+    val readOnly: Boolean get() = false
     val permissions: List<String> get() = emptyList()
 
     fun confirmationPrompt(args: JsonObject, res: Resources): String? = null

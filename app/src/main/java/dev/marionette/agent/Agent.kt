@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -221,8 +222,14 @@ class Agent(
                 if (!s.provider.isAgent) pending += assistant
                 reply.text.trim().takeIf { it.isNotEmpty() }?.let(progress)
                 conversation.update(id) { it.copy(reply = "") }
-                reply.toolCalls.forEach { call ->
-                    var result = executeTool(id, call, toolContext, source, trace)
+                val parallel = reply.toolCalls.size > 1 && reply.toolCalls.all { registry[it.name]?.readOnly == true }
+                val early = if (parallel) {
+                    coroutineScope { reply.toolCalls.map { call -> async { executeTool(id, call, toolContext, source, trace) } }.awaitAll() }
+                } else {
+                    null
+                }
+                reply.toolCalls.forEachIndexed { index, call ->
+                    var result = early?.get(index) ?: executeTool(id, call, toolContext, source, trace)
                     if (UnlockTip.isUnlockBlock(result)) unlockTip.offer()
                     if (registry[call.name]?.silencesTurn(parseObject(call.arguments), result) == true) {
                         result = JsonObject(result + ("voice" to JsonPrimitive(QUIET_NOTE)))

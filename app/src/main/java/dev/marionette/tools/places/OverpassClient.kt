@@ -54,12 +54,15 @@ class OverpassClient(
         fun buildQuery(center: LatLng, radiusMeters: Int, nameQuery: String?, category: PlaceCategory?): String {
             val around = "(around:$radiusMeters,${center.lat},${center.lng})"
             val name = nameQuery?.takeIf { it.isNotBlank() }?.let(::nameRegex)
+            val diet = nameQuery?.trim()?.lowercase()?.takeIf { it.matches(Regex("[a-z_]+")) }
             val selectors = buildList {
                 val filters = category?.osmFilters ?: listOf("")
                 filters.forEach { filter ->
                     if (name != null) {
                         add("nwr$filter[\"name\"~\"$name\",i]$around;")
                         add("nwr$filter[\"brand\"~\"$name\",i]$around;")
+                        add("nwr$filter[\"cuisine\"~\"$name\",i]$around;")
+                        if (diet != null) add("nwr$filter[\"diet:$diet\"~\"^(yes|only)$\"]$around;")
                     } else if (filter.isNotEmpty()) {
                         add("nwr$filter$around;")
                     }

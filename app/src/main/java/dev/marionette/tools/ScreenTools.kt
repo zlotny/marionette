@@ -42,6 +42,7 @@ private fun describeScreen(service: MarionetteAccessibilityService, ctx: ToolCon
 
 class UiReadTool : Tool {
     override val name = "ui_read"
+    override val readOnly = true
     override val category = ToolCategory.SCREEN
     override val description =
         "Read what is on the phone screen now: the foreground app and a numbered list of elements (\"id role \\\"text\\\" flags\"). " +

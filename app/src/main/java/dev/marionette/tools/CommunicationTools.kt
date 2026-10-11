@@ -62,6 +62,7 @@ object Contacts {
 
 class SearchContactsTool : Tool {
     override val name = "search_contacts"
+    override val readOnly = true
     override val category = ToolCategory.COMMUNICATION
     override val permissions = listOf(Manifest.permission.READ_CONTACTS)
     override val description = "Find contacts by name (accents and case ignored) or by the last digits of a number. Returns names and phone numbers."
