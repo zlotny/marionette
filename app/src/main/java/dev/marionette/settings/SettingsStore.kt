@@ -64,6 +64,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val followUpSeconds = intPreferencesKey("follow_up_seconds")
         val holdPhrases = stringPreferencesKey("hold_phrases")
         val earcons = booleanPreferencesKey("earcons")
+        val warmOnWake = booleanPreferencesKey("warm_on_wake")
         val contextFields = stringSetPreferencesKey("context_fields")
         val confirmationDisabled = stringSetPreferencesKey("confirmation_disabled")
         val disabledTools = stringSetPreferencesKey("disabled_tools")
@@ -123,6 +124,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             followUpSeconds = p[Keys.followUpSeconds] ?: defaults.followUpSeconds,
             holdPhrases = p[Keys.holdPhrases]?.split('\n')?.filter { it.isNotBlank() },
             earcons = p[Keys.earcons] ?: defaults.earcons,
+            warmOnWake = p[Keys.warmOnWake] ?: defaults.warmOnWake,
             contextFields = p[Keys.contextFields]?.mapNotNull { runCatching { ContextField.valueOf(it) }.getOrNull() }?.toSet()
                 ?: defaults.contextFields,
             confirmationDisabled = p[Keys.confirmationDisabled] ?: defaults.confirmationDisabled,
@@ -187,6 +189,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.followUpSeconds] = s.followUpSeconds
         s.holdPhrases?.let { p[Keys.holdPhrases] = it.joinToString("\n") } ?: p.remove(Keys.holdPhrases)
         p[Keys.earcons] = s.earcons
+        p[Keys.warmOnWake] = s.warmOnWake
         p[Keys.contextFields] = s.contextFields.map { it.name }.toSet()
         p[Keys.confirmationDisabled] = s.confirmationDisabled
         p[Keys.disabledTools] = s.disabledTools

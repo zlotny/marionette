@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.RecordVoiceOver
@@ -331,6 +332,16 @@ fun ConversationScreen(onBack: () -> Unit, onOpenHoldPhrases: () -> Unit) {
                         checked = settings.earcons,
                         leading = { SettingsIcon(Icons.Rounded.MusicNote) },
                         onCheckedChange = { on -> updateSettings { it.copy(earcons = on) } },
+                    )
+                }
+                item { i, n ->
+                    SwitchRow(
+                        i, n,
+                        headline = stringResource(R.string.voice_warm_up),
+                        supporting = stringResource(R.string.voice_warm_up_body),
+                        checked = settings.warmOnWake,
+                        leading = { SettingsIcon(Icons.Rounded.Bolt) },
+                        onCheckedChange = { on -> updateSettings { it.copy(warmOnWake = on) } },
                     )
                 }
             }

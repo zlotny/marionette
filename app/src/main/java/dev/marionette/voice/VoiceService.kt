@@ -334,6 +334,7 @@ class VoiceService : LifecycleService() {
             graph.settings.current.let { s ->
                 if (s.sendContext) lifecycleScope.launch { graph.device.prefetch(s.contextFields, s.language) }
                 Http.warm(listOfNotNull(s.sttCloud.baseUrl.takeIf { s.sttEngine == SttEngine.CLOUD }, s.baseUrl, s.ttsCloud.baseUrl.takeIf { s.cloudSpeech }))
+                graph.agent.warmUp()
             }
             graph.playback.hold()
             var text = if (readAloud == null) {

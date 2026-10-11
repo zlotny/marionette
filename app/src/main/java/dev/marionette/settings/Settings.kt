@@ -81,6 +81,7 @@ data class AppSettings(
     val followUpSeconds: Int = 6,
     val holdPhrases: List<String>? = null,
     val earcons: Boolean = true,
+    val warmOnWake: Boolean = true,
     val contextFields: Set<ContextField> = ContextField.entries.toSet(),
     val confirmationDisabled: Set<String> = emptySet(),
     val disabledTools: Set<String> = emptySet(),

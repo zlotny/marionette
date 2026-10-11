@@ -8,6 +8,7 @@ import dev.marionette.core.jsonOf
 import dev.marionette.core.parseObject
 import dev.marionette.launch.Launcher
 import dev.marionette.media.PlaybackHold
+import dev.marionette.llm.BackendConfig
 import dev.marionette.llm.BackendFactory
 import dev.marionette.llm.ChatMessage
 import dev.marionette.llm.DeviceIdentity
@@ -67,6 +68,7 @@ class Agent(
     private var historyChat = ""
     private val lock = Mutex()
     private var current: Job? = null
+    @Volatile private var lastRequest = 0L
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
@@ -83,6 +85,25 @@ class Agent(
         current?.cancel()
     }
 
+    fun warmUp() {
+        val s = settings.current
+        val now = System.currentTimeMillis()
+        if (!s.warmOnWake || !s.isBackendConfigured || now - lastRequest < WARM_GAP_MILLIS) return
+        lastRequest = now
+        val config = if (startsNewChat(TurnSource.VOICE, s)) s.backendFor(null, null) else backendConfig(s, conversation.current.value)
+        scope.launch(Dispatchers.IO) {
+            try {
+                val backend = BackendFactory.create(config, sessionUser = WARM_SESSION)
+                val specs = if (s.provider.isAgent) emptyList() else registry.specs(s.disabledTools)
+                backend.complete(prompt.build(s, ""), listOf(ChatMessage.User(WARM_PROMPT)), specs)
+                Logger.i("Warm-up done in ${System.currentTimeMillis() - now} ms")
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Logger.w("Warm-up failed", e)
+            }
+        }
+    }
+
     fun resetSession() {
         conversation.newChat()
     }
@@ -93,6 +114,11 @@ class Agent(
         val chat = conversation.current.value
         return source != TurnSource.TEXT && !s.continueConversation && chat.turns.isNotEmpty() &&
             System.currentTimeMillis() - chat.updated > SESSION_IDLE_MILLIS
+    }
+
+    private fun backendConfig(s: AppSettings, chat: Chat): BackendConfig {
+        val own = chat.overrideProvider == s.provider.name
+        return s.backendFor(chat.model.takeIf { own }, chat.thinking.takeIf { own })
     }
 
     private fun syncHistory(chat: Chat) {
@@ -136,8 +162,7 @@ class Agent(
     private suspend fun loop(id: Long, input: String, source: TurnSource, trace: TraceBuilder, onProgress: (String) -> Unit, onQuiet: () -> Unit): String {
         val s = settings.current
         val chat = conversation.current.value
-        val own = chat.overrideProvider == s.provider.name
-        val config = s.backendFor(chat.model.takeIf { own }, chat.thinking.takeIf { own })
+        val config = backendConfig(s, chat)
         trace.backend = s.provider.name + " " + listOf(config.model, config.agentModel, config.thinking?.id.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
         val statsModel = if (s.provider.isAgent) config.agentModel else config.model
         val user = sessionUser(chat.id)
@@ -178,6 +203,7 @@ class Agent(
         try {
             repeat(MAX_ROUNDS) { round ->
                 val started = System.currentTimeMillis()
+                lastRequest = started
                 val streamed = StringBuilder()
                 var firstText: Long? = null
                 val reply = backend.complete(system, outgoing(), specs) { delta ->
@@ -211,6 +237,7 @@ class Agent(
                     pending += message
                 }
             }
+            lastRequest = System.currentTimeMillis()
             val final = backend.complete(system, outgoing(), emptyList())
             history += ChatMessage.Assistant(final.text)
             return final.text.trim()
@@ -358,6 +385,9 @@ class Agent(
         private const val MAX_HISTORY = 40
         private const val SESSION_IDLE_MILLIS = 5 * 60_000L
         private const val PATCH_MILLIS = 4_000L
+        private const val WARM_GAP_MILLIS = 4 * 60_000L
+        private const val WARM_SESSION = "marionette-warm"
+        private const val WARM_PROMPT = "Reply with only: ok"
         private const val QUIET_NOTE = "muted: the user is listening to the music or the call now, so the rest of this turn is shown on screen and not spoken"
     }
 }

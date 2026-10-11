@@ -249,6 +249,8 @@
     <string name="voice_follow_up_body">Tiempo para contestar sin repetir la frase de activación.</string>
     <string name="voice_earcons">Sonidos</string>
     <string name="voice_earcons_body">Un tono corto cuando %1$s empieza y deja de escuchar.</string>
+    <string name="voice_warm_up">Precalentar al activarse</string>
+    <string name="voice_warm_up_body">Envía una petición mínima a tu agente al decir la palabra de activación, para que la respuesta real empiece antes. Cuesta una petición pequeña por activación tras 4 minutos sin uso.</string>
 
     <string name="context_intro">Estas señales van a %1$s con cada petición para que tu agente sepa dónde estás y qué haces. El idioma del dispositivo va siempre.</string>
     <string name="context_preview">Lo que ve %1$s</string>

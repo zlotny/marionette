@@ -250,6 +250,8 @@
     <string name="voice_follow_up_body">Time to answer back without the wake phrase.</string>
     <string name="voice_earcons">Sounds</string>
     <string name="voice_earcons_body">Play a short tone when %1$s starts and stops listening.</string>
+    <string name="voice_warm_up">Warm up on wake</string>
+    <string name="voice_warm_up_body">Send a tiny request to your agent when you say the wake word, so the real answer starts faster. Costs one small request per wake after 4 minutes idle.</string>
 
     <string name="context_intro">These signals go to %1$s with each request, so your agent knows where you are and what you are doing. The device language always goes.</string>
     <string name="context_preview">What %1$s sees</string>
