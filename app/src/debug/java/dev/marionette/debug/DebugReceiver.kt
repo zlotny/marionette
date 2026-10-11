@@ -61,6 +61,11 @@ class DebugReceiver : BroadcastReceiver() {
                 Logger.i("DEBUG_AUDIO: ${pcm.size} samples from ${file.name}")
                 VoiceService.inject(pcm)
             }
+            ACTION_ENROLL_STOP -> {
+                val label = intent.getStringExtra("label") ?: return
+                VoiceService.enrollStopPhrase(context, intent.getStringExtra("id") ?: System.currentTimeMillis().toString(), label, append = false)
+            }
+            ACTION_ENROLL_FINISH -> VoiceService.send(context, VoiceService.ACTION_ENROLL_FINISH)
             ACTION_RESET -> graph.agent.resetSession()
             ACTION_CONFIRM -> graph.confirmations.pending.value?.let {
                 graph.confirmations.answer(it.id, intent.getBooleanExtra("yes", true))
@@ -76,5 +81,7 @@ class DebugReceiver : BroadcastReceiver() {
         const val ACTION_AUDIO = "dev.marionette.DEBUG_AUDIO"
         const val WAV_HEADER = 44
         const val ACTION_CONFIRM = "dev.marionette.DEBUG_CONFIRM"
+        const val ACTION_ENROLL_STOP = "dev.marionette.DEBUG_ENROLL_STOP"
+        const val ACTION_ENROLL_FINISH = "dev.marionette.DEBUG_ENROLL_FINISH"
     }
 }

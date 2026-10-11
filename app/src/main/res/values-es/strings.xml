@@ -207,6 +207,14 @@
     <string name="settings_about">Acerca de Marionette</string>
     <string name="settings_about_summary">Versión %1$s</string>
 
+    <string name="settings_stop_phrases">Frases de parada</string>
+    <string name="stop_intro">Mientras %1$s trabaja o habla, di una de estas frases para cancelar la petición. Por ejemplo: «%1$s, para», «Déjalo estar» o «Cállate».</string>
+    <string name="stop_add">Añadir frase de parada</string>
+    <string name="stop_phrase">Frase de parada</string>
+    <string name="stop_phrase_hint">Por ejemplo: %1$s, para</string>
+    <string name="stop_recordings">%1$d grabaciones. Toca para añadir más.</string>
+    <string name="stop_test_prompt">Di una frase de parada para probarla</string>
+    <string name="stop_note">Las frases de parada usan la sensibilidad de la palabra de activación. Tus grabaciones se quedan en este móvil.</string>
     <string name="wake_not_set">Sin configurar</string>
     <string name="wake_enabled">Escuchar la frase de activación</string>
     <string name="wake_enabled_body">Llama a %1$s con la voz, sin tocar el móvil.</string>
@@ -313,6 +321,8 @@
 
     <string name="screen_control_body">El control de pantalla nunca funciona en las apps que bloquees abajo. Las apps de bancos, carteras y autenticadores están bloqueadas de serie. En Android 13 o superior, si el interruptor está gris, abre Información de la app, toca el menú y elige Permitir ajustes restringidos.</string>
     <string name="screen_control_blocklist_search">Buscar apps</string>
+    <string name="screen_control_relock">Bloquear al terminar</string>
+    <string name="screen_control_relock_body">Si tu agente quita la pantalla de bloqueo para usar una app, vuelve a bloquear el móvil al final de la petición. Así evitas toques accidentales en el bolsillo.</string>
     <string name="screen_control_blocked">Bloqueada</string>
     <string name="screen_control_allowed">Permitida</string>
     <string name="screen_control_apps">Apps bloqueadas</string>

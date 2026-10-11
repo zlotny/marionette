@@ -38,6 +38,7 @@ import dev.marionette.ui.access.rememberAccessState
 import dev.marionette.ui.components.SettingsGroup
 import dev.marionette.ui.components.SettingsNote
 import dev.marionette.ui.components.SettingsScaffold
+import dev.marionette.ui.components.SwitchRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -62,6 +63,19 @@ fun ScreenControlScreen(onBack: () -> Unit) {
     SettingsScaffold(title = stringResource(R.string.settings_screen_control), onBack = onBack) {
         item { AccessList(null, listOf(Access.SCREEN_CONTROL), access) }
         item { SettingsNote(stringResource(R.string.screen_control_body)) }
+        item {
+            SettingsGroup(null) {
+                item { i, n ->
+                    SwitchRow(
+                        i, n,
+                        headline = stringResource(R.string.screen_control_relock),
+                        supporting = stringResource(R.string.screen_control_relock_body),
+                        checked = settings.relockAfterScreenControl,
+                        onCheckedChange = { on -> updateSettings { it.copy(relockAfterScreenControl = on) } },
+                    )
+                }
+            }
+        }
         item {
             OutlinedTextField(
                 value = query,

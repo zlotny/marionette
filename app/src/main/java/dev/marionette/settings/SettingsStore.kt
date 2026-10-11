@@ -64,6 +64,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val followUpSeconds = intPreferencesKey("follow_up_seconds")
         val holdPhrases = stringPreferencesKey("hold_phrases")
         val earcons = booleanPreferencesKey("earcons")
+        val relock = booleanPreferencesKey("relock_after_screen_control")
         val warmOnWake = booleanPreferencesKey("warm_on_wake")
         val contextFields = stringSetPreferencesKey("context_fields")
         val confirmationDisabled = stringSetPreferencesKey("confirmation_disabled")
@@ -130,6 +131,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             confirmationDisabled = p[Keys.confirmationDisabled] ?: defaults.confirmationDisabled,
             disabledTools = p[Keys.disabledTools] ?: defaults.disabledTools,
             uiAutomationBlocklist = p[Keys.blocklist] ?: defaults.uiAutomationBlocklist,
+            relockAfterScreenControl = p[Keys.relock] ?: defaults.relockAfterScreenControl,
         )
     }
 
@@ -194,5 +196,6 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.confirmationDisabled] = s.confirmationDisabled
         p[Keys.disabledTools] = s.disabledTools
         p[Keys.blocklist] = s.uiAutomationBlocklist
+        p[Keys.relock] = s.relockAfterScreenControl
     }
 }

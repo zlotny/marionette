@@ -7,10 +7,17 @@ import dev.marionette.screen.MarionetteAccessibilityService
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 
-private fun screenGuard(ctx: ToolContext): Pair<MarionetteAccessibilityService?, JsonObject?> {
+private const val KEYGUARD_SETTLE_MILLIS = 800L
+
+private suspend fun screenGuard(ctx: ToolContext): Pair<MarionetteAccessibilityService?, JsonObject?> {
     val service = MarionetteAccessibilityService.instance
         ?: return null to ToolResults.error("missing_permission", "Screen control is off. Ask the user to enable the Marionette accessibility service in Marionette settings.")
-    if (ctx.device.isLocked) return null to ToolResults.needsUnlock()
+    val keyguardShowing = ctx.device.isKeyguardShowing
+    if (ctx.device.isLocked || !ctx.launcher.dismissKeyguard()) return null to ToolResults.needsUnlock()
+    if (keyguardShowing) {
+        ctx.dismissedKeyguard = true
+        delay(KEYGUARD_SETTLE_MILLIS)
+    }
     val pkg = service.foregroundPackage()
     if (pkg != null && pkg in ctx.settings.uiAutomationBlocklist) {
         return null to ToolResults.error("blocked_app", "Screen control is disabled for this app ($pkg) for safety.")

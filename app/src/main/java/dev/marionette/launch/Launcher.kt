@@ -15,16 +15,27 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 enum class LaunchStatus { STARTED, WAITING_FOR_UNLOCK, FAILED }
 
-class Launcher(private val context: Context, private val isLocked: () -> Boolean) {
+class Launcher(private val context: Context, private val isKeyguardShowing: () -> Boolean) {
     private val main = Handler(Looper.getMainLooper())
     private var pending: PendingLaunch? = null
     private var unlockReceiver: BroadcastReceiver? = null
 
-    private class PendingLaunch(val intent: Intent, val label: String, val result: CompletableDeferred<LaunchStatus>)
+    private class PendingLaunch(val intent: Intent?, val label: String, val result: CompletableDeferred<LaunchStatus>)
 
     suspend fun launch(intent: Intent, label: String, unlock: Boolean = true): LaunchStatus {
         val target = Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (!unlock || !isLocked()) return start(target, label)
+        if (!unlock || !isKeyguardShowing()) return start(target, label)
+        return dismissKeyguardThen(target, label)
+    }
+
+    suspend fun dismissKeyguard(): Boolean {
+        if (!isKeyguardShowing()) return true
+        val status = dismissKeyguardThen(null, "keyguard dismiss")
+        if (status != LaunchStatus.STARTED && pending?.intent == null) clearPending()
+        return status == LaunchStatus.STARTED
+    }
+
+    private suspend fun dismissKeyguardThen(target: Intent?, label: String): LaunchStatus {
         val launch = PendingLaunch(target, label, CompletableDeferred())
         pending?.result?.complete(LaunchStatus.FAILED)
         pending = launch
@@ -46,8 +57,7 @@ class Launcher(private val context: Context, private val isLocked: () -> Boolean
     fun onKeyguardDismissed(activity: Context) {
         val launch = pending ?: return
         clearPending()
-        val status = start(launch.intent, launch.label, activity)
-        launch.result.complete(status)
+        launch.result.complete(start(launch.intent, launch.label, activity))
     }
 
     fun onKeyguardDismissCancelled() {
@@ -56,8 +66,8 @@ class Launcher(private val context: Context, private val isLocked: () -> Boolean
 
     val hasPending: Boolean get() = pending != null
 
-    private fun start(intent: Intent, label: String, from: Context = context): LaunchStatus = runCatching {
-        from.startActivity(intent)
+    private fun start(intent: Intent?, label: String, from: Context = context): LaunchStatus = runCatching {
+        intent?.let(from::startActivity)
         Logger.i("Launched $label")
         LaunchStatus.STARTED
     }.getOrElse {

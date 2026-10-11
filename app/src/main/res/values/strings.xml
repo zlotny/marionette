@@ -208,6 +208,14 @@
     <string name="settings_about">About Marionette</string>
     <string name="settings_about_summary">Version %1$s</string>
 
+    <string name="settings_stop_phrases">Stop phrases</string>
+    <string name="stop_intro">While %1$s works or talks, say one of these phrases to cancel the request. For example: “%1$s, stop”, “Never mind” or “Cancel that”.</string>
+    <string name="stop_add">Add stop phrase</string>
+    <string name="stop_phrase">Stop phrase</string>
+    <string name="stop_phrase_hint">For example: %1$s, stop</string>
+    <string name="stop_recordings">%1$d recordings. Tap to add more.</string>
+    <string name="stop_test_prompt">Say a stop phrase to test it</string>
+    <string name="stop_note">Stop phrases use the wake word sensitivity. Your recordings stay on this phone.</string>
     <string name="wake_not_set">Not set up</string>
     <string name="wake_enabled">Listen for wake phrase</string>
     <string name="wake_enabled_body">Call %1$s by voice, without touching the phone.</string>
@@ -314,6 +322,8 @@
 
     <string name="screen_control_body">Screen control never works in the apps you block below. Banking, wallet and authenticator apps are blocked by default. On Android 13 and later, if the switch is greyed out, open App info, tap the menu and choose Allow restricted settings.</string>
     <string name="screen_control_blocklist_search">Search apps</string>
+    <string name="screen_control_relock">Lock again when done</string>
+    <string name="screen_control_relock_body">If your agent opens the lock screen to use an app, it locks the phone again at the end of the request. This stops accidental touches in a pocket.</string>
     <string name="screen_control_blocked">Blocked</string>
     <string name="screen_control_allowed">Allowed</string>
     <string name="screen_control_apps">Blocked apps</string>

@@ -121,9 +121,18 @@ class ModelPicker(
             val level = s.backendFor(null, chat.own(s)?.thinking).thinking
             val identity = DeviceIdentity.parse(s.gatewayDeviceKey) ?: return@launch
             _sync.value = ThinkingSync.Applying
-            val result = OpenClawLink.setThinking(
-                s.baseUrl, identity, s.gatewayDeviceToken, Agent.sessionUser(chat.id), OpenClawGateway.agentName(s.model), level,
-            )
+            suspend fun patch(token: String) =
+                OpenClawLink.setThinking(s.baseUrl, identity, token, Agent.sessionUser(chat.id), OpenClawGateway.agentName(s.model), level)
+            var result = patch(s.gatewayDeviceToken)
+            if (result == LinkResult.TokenOutdated) {
+                result = when (val paired = OpenClawLink.pair(s.baseUrl, s.apiKey.trim(), identity, "")) {
+                    is LinkResult.Paired -> {
+                        settings.update { it.copy(gatewayDeviceToken = paired.token) }
+                        patch(paired.token)
+                    }
+                    else -> paired
+                }
+            }
             _sync.value = when (result) {
                 is LinkResult.Paired -> {
                     conversation.setSessionThinking(chat.id, level?.id.orEmpty())
@@ -131,6 +140,7 @@ class ModelPicker(
                 }
                 is LinkResult.PairingRequired -> ThinkingSync.NeedsApproval(result.requestId)
                 is LinkResult.Failed -> ThinkingSync.Failed(result.message)
+                LinkResult.TokenOutdated -> ThinkingSync.Failed("token outdated")
             }
         }
     }

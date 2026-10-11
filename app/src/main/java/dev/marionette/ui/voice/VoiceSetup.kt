@@ -74,7 +74,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 const val ENROLL_TARGET = 5
-private const val ENROLL_MINIMUM = 3
+const val ENROLL_MINIMUM = 3
 
 @Composable
 fun rememberSpeaker(): Speaker {
@@ -213,7 +213,7 @@ private enum class EnrollStage { IDLE, RECORDING, READY }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun Recording(phrase: String, count: Int, minimum: Int, saving: Boolean, onFinish: () -> Unit, onCancel: () -> Unit) {
+internal fun Recording(phrase: String, count: Int, minimum: Int, saving: Boolean, onFinish: () -> Unit, onCancel: () -> Unit) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (saving) {
             LoadingIndicator(Modifier.size(64.dp))

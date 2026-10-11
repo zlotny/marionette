@@ -11,6 +11,7 @@ import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.PanTool
 import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.TouchApp
@@ -116,6 +117,15 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
                         },
                         leading = { SettingsIcon(Icons.Rounded.RecordVoiceOver) },
                         onClick = { onOpen(SettingsNavigation.Wake) },
+                    )
+                }
+                item { i, n ->
+                    SettingsRow(
+                        i, n,
+                        headline = stringResource(R.string.settings_stop_phrases),
+                        supporting = voice.stopPhrases.takeIf { it.isNotEmpty() }?.joinToString(" · ") { it.label } ?: stringResource(R.string.wake_not_set),
+                        leading = { SettingsIcon(Icons.Rounded.PanTool) },
+                        onClick = { onOpen(SettingsNavigation.StopPhrases) },
                     )
                 }
                 item { i, n ->

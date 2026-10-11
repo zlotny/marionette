@@ -52,6 +52,7 @@ sealed interface LinkResult {
     data class Paired(val token: String) : LinkResult
     data class PairingRequired(val requestId: String) : LinkResult
     data class Failed(val message: String) : LinkResult
+    data object TokenOutdated : LinkResult
 }
 
 sealed interface LinkEvent {
@@ -73,6 +74,7 @@ object OpenClawLink {
     private const val PLATFORM = "android"
     private const val PROTOCOL = 4
     private const val HANDSHAKE_MILLIS = 10_000L
+    private val OUTDATED_TOKEN_CODES = setOf("AUTH_SCOPE_MISMATCH", "AUTH_DEVICE_TOKEN_MISMATCH")
 
     fun socketUrl(baseUrl: String): String = OpenClawGateway.root(baseUrl).let {
         when {
@@ -120,6 +122,7 @@ object OpenClawLink {
         if (error?.string("code") == "NOT_PAIRED" || details?.string("code") == "PAIRING_REQUIRED") {
             details?.string("requestId")?.let { return LinkResult.PairingRequired(it) }
         }
+        if (details?.string("code") in OUTDATED_TOKEN_CODES) return LinkResult.TokenOutdated
         return LinkResult.Failed(error?.string("message") ?: "connect failed")
     }
 

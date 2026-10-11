@@ -86,6 +86,7 @@ data class AppSettings(
     val confirmationDisabled: Set<String> = emptySet(),
     val disabledTools: Set<String> = emptySet(),
     val uiAutomationBlocklist: Set<String> = DEFAULT_BLOCKLIST,
+    val relockAfterScreenControl: Boolean = true,
 ) {
     val apiKey: String get() = key(Credential.of(provider))
     val googlePlacesKey: String get() = key(Credential.GOOGLE_PLACES)

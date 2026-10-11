@@ -44,7 +44,9 @@ class DeviceSnapshotProvider(private val context: Context) {
     private val locating = Mutex()
     private val geocoding = Mutex()
 
-    val isLocked: Boolean get() = context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
+    val isLocked: Boolean get() = context.getSystemService(KeyguardManager::class.java).isDeviceLocked
+
+    val isKeyguardShowing: Boolean get() = context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
 
     val isScreenOn: Boolean get() = context.getSystemService(PowerManager::class.java).isInteractive
 

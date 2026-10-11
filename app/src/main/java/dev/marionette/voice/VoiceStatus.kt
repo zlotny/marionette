@@ -1,5 +1,6 @@
 package dev.marionette.voice
 
+import dev.marionette.voice.wake.StopPhrase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +20,8 @@ data class VoiceStatus(
     val lastError: String? = null,
     val speechLanguageMissing: Boolean = false,
     val lastWakeAt: Long = 0,
+    val stopPhrases: List<StopPhrase> = emptyList(),
+    val lastStopAt: Long = 0,
 )
 
 object VoiceBus {

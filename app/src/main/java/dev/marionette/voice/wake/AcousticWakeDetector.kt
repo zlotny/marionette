@@ -5,7 +5,13 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 
-class AcousticWakeDetector(private val embedder: SpeechEmbedder, templates: List<List<FloatArray>>) {
+data class Detection(val score: Float, val wake: Boolean, val stop: Boolean)
+
+class AcousticWakeDetector(
+    private val embedder: SpeechEmbedder,
+    wakeTemplates: List<List<FloatArray>>,
+    stopTemplates: List<List<FloatArray>> = emptyList(),
+) {
 
     private class Track(val template: List<FloatArray>) {
         var previous = FloatArray(template.size) { Float.POSITIVE_INFINITY }
@@ -28,19 +34,24 @@ class AcousticWakeDetector(private val embedder: SpeechEmbedder, templates: List
         }
     }
 
-    private val tracks = templates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map(::Track)
+    private val wakeTracks = wakeTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map(::Track)
+    private val stopTracks = stopTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map(::Track)
     private val pending = FloatArray(HOP_SAMPLES * 4)
     private var pendingCount = 0
     private val melInput = FloatArray(MEL_CONTEXT_SAMPLES + HOP_SAMPLES)
     private val melFrames = ArrayDeque<FloatArray>()
-    private var framesSinceDetection = Int.MAX_VALUE / 2
+    private var framesSinceWake = Int.MAX_VALUE / 2
+    private var framesSinceStop = Int.MAX_VALUE / 2
     private var quietHops = Int.MAX_VALUE / 2
 
-    val templateCount: Int get() = tracks.size
+    val wakeArmed: Boolean get() = wakeTracks.isNotEmpty()
 
-    fun accept(samples: FloatArray, threshold: Float): Pair<Float, Boolean>? {
+    val stopArmed: Boolean get() = stopTracks.isNotEmpty()
+
+    fun accept(samples: FloatArray, threshold: Float, listenForStop: Boolean = false): Detection? {
         var best: Float? = null
-        var fired = false
+        var wake = false
+        var stop = false
         var offset = 0
         while (offset < samples.size) {
             val take = minOf(samples.size - offset, pending.size - pendingCount)
@@ -48,35 +59,44 @@ class AcousticWakeDetector(private val embedder: SpeechEmbedder, templates: List
             pendingCount += take
             offset += take
             while (pendingCount >= HOP_SAMPLES) {
-                processHop(threshold)?.let { (score, hit) ->
-                    best = minOf(best ?: score, score)
-                    fired = fired || hit
+                processHop(threshold, listenForStop)?.let { hop ->
+                    best = minOf(best ?: hop.score, hop.score)
+                    wake = wake || hop.wake
+                    stop = stop || hop.stop
                 }
                 pending.copyInto(pending, 0, HOP_SAMPLES, pendingCount)
                 pendingCount -= HOP_SAMPLES
             }
         }
-        return best?.let { it to fired }
+        return best?.let { Detection(it, wake && !stop, stop) }
     }
 
-    private fun processHop(threshold: Float): Pair<Float, Boolean>? {
+    private fun processHop(threshold: Float, listenForStop: Boolean): Detection? {
         pending.copyInto(melInput, MEL_CONTEXT_SAMPLES, 0, HOP_SAMPLES)
         val mel = embedder.mel(melInput)
         melInput.copyInto(melInput, 0, HOP_SAMPLES, HOP_SAMPLES + MEL_CONTEXT_SAMPLES)
         mel.takeLast(HOP_SAMPLES / 160).forEach { melFrames.addLast(it) }
         while (melFrames.size > SpeechEmbedder.WINDOW) melFrames.removeFirst()
         quietHops = if (SilenceGate.isQuiet(pending, HOP_SAMPLES)) quietHops + 1 else 0
-        framesSinceDetection++
+        framesSinceWake++
+        framesSinceStop++
         if (melFrames.size < SpeechEmbedder.WINDOW) return null
+        if (!listenForStop) stopTracks.forEach { it.reset() }
         if (quietHops > WINDOW_HOPS) {
-            tracks.forEach { it.reset() }
+            wakeTracks.forEach { it.reset() }
+            stopTracks.forEach { it.reset() }
             return null
         }
+        val stopping = listenForStop && stopTracks.isNotEmpty()
+        if (wakeTracks.isEmpty() && !stopping) return null
         val frame = embedder.embed(listOf(melFrames.toList())).first()
-        val score = tracks.minOf { it.push(frame) }
-        val hit = score < threshold && framesSinceDetection * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
-        if (hit) framesSinceDetection = 0
-        return score to hit
+        val wakeScore = wakeTracks.minOfOrNull { it.push(frame) } ?: Float.POSITIVE_INFINITY
+        val stopScore = if (stopping) stopTracks.minOf { it.push(frame) } else Float.POSITIVE_INFINITY
+        val stop = stopScore < threshold && framesSinceStop * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
+        val wake = !stop && wakeScore < threshold && framesSinceWake * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
+        if (stop) framesSinceStop = 0
+        if (wake) framesSinceWake = 0
+        return Detection(minOf(wakeScore, stopScore), wake, stop)
     }
 
     companion object {

@@ -27,7 +27,7 @@ class AppGraph(context: Context) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val settings = SettingsStore(app, scope)
     val device = DeviceSnapshotProvider(app)
-    val launcher = Launcher(app) { device.isLocked }
+    val launcher = Launcher(app) { device.isKeyguardShowing }
     val conversation = Conversation(File(app.filesDir, "chats"), scope)
     val playback = PlaybackHold(app)
     val confirmations = ConfirmationBroker()

@@ -116,5 +116,11 @@ class MarionetteAccessibilityService : AccessibilityService() {
             val me = ComponentName(context, MarionetteAccessibilityService::class.java)
             return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
         }
+
+        fun lockScreen(): Boolean {
+            val locked = instance?.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) == true
+            Logger.i("Lock screen after screen control: $locked")
+            return locked
+        }
     }
 }

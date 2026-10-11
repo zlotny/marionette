@@ -95,6 +95,11 @@ class OpenClawLinkTest {
         assertEquals(LinkResult.PairingRequired("req-1"), pending)
         val failed = OpenClawLink.connectResult(parseObject("""{"type":"res","id":"1","ok":false,"error":{"code":"UNAUTHORIZED","message":"bad secret"}}"""), "")
         assertEquals(LinkResult.Failed("bad secret"), failed)
+        val outdated = OpenClawLink.connectResult(
+            parseObject("""{"type":"res","id":"1","ok":false,"error":{"code":"INVALID_REQUEST","message":"unauthorized: device token scope mismatch","details":{"code":"AUTH_SCOPE_MISMATCH"}}}"""),
+            "old",
+        )
+        assertEquals(LinkResult.TokenOutdated, outdated)
     }
 
     @Test

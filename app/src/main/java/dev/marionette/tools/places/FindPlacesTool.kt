@@ -23,7 +23,8 @@ class FindPlacesTool(
     override val category = ToolCategory.PLACES
     override val description =
         "Find places near the user or near a named place. Use for 'the nearest X', 'a gas station', 'McDonald's near Toledo', addresses. " +
-            "Returns places sorted by distance from the search center, with coordinates for navigate."
+            "Returns places sorted by distance from the search center, with coordinates for navigate. " +
+            "With a Google Places key, results also include rating, rating_count and open_now."
     override val parameters = schema {
         string("query", "Name, brand, cuisine or diet to match, e.g. \"McDonald's\", \"Repsol\", \"sushi\", \"vegan\", or a full address. Cuisine and diet match one English word. Omit when only a category is wanted.")
         string("category", "Kind of place, when the user asks for a type of place.", enum = PlaceCategory.keys)
@@ -76,6 +77,9 @@ class FindPlacesTool(
                     "distance_m" to distance.roundToInt(),
                     "category" to place.category,
                     "opening_hours" to place.openingHours,
+                    "open_now" to place.openNow,
+                    "rating" to place.rating,
+                    "rating_count" to place.ratingCount,
                 ).filterValues { it != null }
             },
         )

@@ -6,4 +6,7 @@ data class Place(
     val location: LatLng,
     val category: String?,
     val openingHours: String? = null,
+    val rating: Double? = null,
+    val ratingCount: Int? = null,
+    val openNow: Boolean? = null,
 )

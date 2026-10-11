@@ -19,7 +19,9 @@ class ToolContext(
     val launcher: Launcher,
     val settings: AppSettings,
     val playback: PlaybackHold,
-)
+) {
+    @Volatile var dismissedKeyguard = false
+}
 
 interface Tool {
     val name: String

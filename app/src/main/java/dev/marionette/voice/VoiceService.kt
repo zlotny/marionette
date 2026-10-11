@@ -13,6 +13,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -39,6 +40,8 @@ import dev.marionette.voice.stt.SttException
 import dev.marionette.voice.stt.SttSession
 import dev.marionette.voice.wake.AcousticWakeDetector
 import dev.marionette.voice.wake.SpeechEmbedder
+import dev.marionette.voice.wake.StopPhrases
+import dev.marionette.voice.wake.StopText
 import dev.marionette.voice.wake.UtteranceCounter
 import dev.marionette.voice.wake.WakeTemplates
 import kotlinx.coroutines.CancellationException
@@ -72,6 +75,7 @@ class VoiceService : LifecycleService() {
 
     private val graph get() = MarionetteApp.graph
     private val templates by lazy { WakeTemplates(this) }
+    private val stopPhrases by lazy { StopPhrases(this) }
     private val speaker by lazy { Speaker(this) }
     private val audio by lazy { getSystemService(AudioManager::class.java) }
 
@@ -82,6 +86,7 @@ class VoiceService : LifecycleService() {
 
     @Volatile private var mode = Mode.WAKE
     @Volatile private var detector: AcousticWakeDetector? = null
+    private var pendingWake: Job? = null
     @Volatile private var commandSink: CommandSink? = null
     private var embedder: SpeechEmbedder? = null
     private var vad: Vad? = null
@@ -92,6 +97,7 @@ class VoiceService : LifecycleService() {
     private val enrollBuffer = ShortArray(AudioSpec.SAMPLE_RATE * MAX_ENROLL_SECONDS)
     private var enrollSamples = 0
     private var enrollAppend = false
+    private var enrollStop: Pair<String, String>? = null
     private var lastHoldPhrase: String? = null
     private var enrollCounter: UtteranceCounter? = null
 
@@ -133,7 +139,13 @@ class VoiceService : LifecycleService() {
                 trigger(TriggerSource.BUTTON, readAloud = it, followUp = intent.getBooleanExtra(EXTRA_FOLLOW_UP, false))
             }
             ACTION_CANCEL -> cancelCommand()
-            ACTION_ENROLL_START -> startEnrollment(append = intent.getBooleanExtra(EXTRA_APPEND, false))
+            ACTION_ENROLL_START -> startEnrollment(
+                append = intent.getBooleanExtra(EXTRA_APPEND, false),
+                stop = intent.getStringExtra(EXTRA_STOP_ID)?.let { it to intent.getStringExtra(EXTRA_STOP_LABEL).orEmpty() },
+            )
+            ACTION_STOP_PHRASE_DELETE -> intent.getStringExtra(EXTRA_STOP_ID)?.let(::deleteStopPhrase)
+            ACTION_STOP_TEST_START -> stopTests++
+            ACTION_STOP_TEST_STOP -> stopTests = (stopTests - 1).coerceAtLeast(0)
             ACTION_ENROLL_FINISH -> finishEnrollment(save = true)
             ACTION_ENROLL_CANCEL -> finishEnrollment(save = false)
             ACTION_RELOAD -> reloadDetector()
@@ -148,6 +160,7 @@ class VoiceService : LifecycleService() {
     override fun onDestroy() {
         running = false
         wakeTests = 0
+        stopTests = 0
         graph.confirmations.voiceHandler = null
         commandJob?.cancel()
         captureJob?.cancel()
@@ -198,9 +211,12 @@ class VoiceService : LifecycleService() {
         val loaded = templates.load()
         val embedder = embedder ?: runCatching { SpeechEmbedder(assets) }.onFailure { Logger.e("Embedder load failed", it) }.getOrNull()
         this.embedder = embedder
-        detector = if (settings.wakeEnabled && loaded.isNotEmpty() && embedder != null) AcousticWakeDetector(embedder, loaded) else null
-        VoiceBus.update { it.copy(templateCount = loaded.size, wakeArmed = detector != null) }
-        Logger.i("Wake detector: ${loaded.size} templates, armed=${detector != null}")
+        val wake = if (settings.wakeEnabled) loaded else emptyList()
+        val stops = stopPhrases.loadAll()
+        detector = if ((wake.isNotEmpty() || stops.isNotEmpty()) && embedder != null) AcousticWakeDetector(embedder, wake, stops) else null
+        val armed = detector?.wakeArmed == true
+        VoiceBus.update { it.copy(templateCount = loaded.size, wakeArmed = armed, stopPhrases = stopPhrases.list()) }
+        Logger.i("Wake detector: ${loaded.size} templates, armed=$armed, stop templates ${stops.size}")
     }
 
     private fun inCall(): Boolean = audio.mode in CALL_MODES
@@ -224,6 +240,9 @@ class VoiceService : LifecycleService() {
         val samples = FloatArray(AudioSpec.CHUNK_SAMPLES)
         var lastLevelPublish = 0L
         var lastCallCheck = 0L
+        val echo = if (AcousticEchoCanceler.isAvailable()) runCatching { AcousticEchoCanceler.create(record.audioSessionId) }.getOrNull() else null
+        Logger.i("Echo canceller: available=${AcousticEchoCanceler.isAvailable()}, attached=${echo != null}")
+        var echoOn = false
         record.startRecording()
         VoiceBus.update { it.copy(inputDevice = record.routedDevice?.productName?.toString()) }
         try {
@@ -250,31 +269,59 @@ class VoiceService : LifecycleService() {
                         return true
                     }
                 }
+                val busy = mode != Mode.WAKE || graph.agent.busy.value
+                if (echo != null && busy != echoOn) {
+                    echoOn = busy
+                    runCatching { echo.enabled = busy }.onFailure { Logger.w("Echo canceller toggle failed", it) }
+                }
                 if (now - lastLevelPublish > 60) {
                     VoiceBus.level(sqrt(sum / n).toFloat())
                     lastLevelPublish = now
                 }
                 when (mode) {
-                    Mode.WAKE, Mode.BUSY -> detector?.accept(chunk, graph.settings.current.wakeThreshold)?.let { (score, fired) ->
-                        if (fired) {
-                            Logger.i("Wake word detected (score $score)")
-                            VoiceBus.update { it.copy(lastWakeAt = now) }
-                            if (wakeTests > 0) {
-                                lifecycleScope.launch { playEarcon(Earcon.DONE) }
-                            } else {
-                                lifecycleScope.launch { trigger(TriggerSource.WAKE_WORD) }
-                            }
+                    Mode.WAKE, Mode.BUSY -> detector?.let { d ->
+                        val working = mode == Mode.BUSY || graph.agent.busy.value
+                        d.accept(chunk, graph.settings.current.wakeThreshold, listenForStop = working || stopTests > 0)?.let { hit ->
+                            if (hit.stop) onStopPhrase(now, working)
+                            if (hit.wake) onWakeWord(hit.score, now, deferred = working && d.stopArmed)
                         }
                     }
-                    Mode.COMMAND -> commandSink?.let { feedCommand(it, pcm, n, chunk) }
+                    Mode.COMMAND -> {
+                        commandSink?.let { feedCommand(it, pcm, n, chunk) }
+                        if (detector?.accept(chunk, graph.settings.current.wakeThreshold, listenForStop = true)?.stop == true) onStopPhrase(now, working = true)
+                    }
                     Mode.ENROLL -> feedEnrollment(pcm, n, chunk)
                 }
             }
         } finally {
+            echo?.release()
             record.stop()
             record.release()
         }
         return false
+    }
+
+    private fun onWakeWord(score: Float, now: Long, deferred: Boolean) {
+        Logger.i("Wake word detected (score $score)")
+        if (stopTests > 0) return
+        VoiceBus.update { it.copy(lastWakeAt = now) }
+        if (wakeTests > 0) {
+            lifecycleScope.launch { playEarcon(Earcon.DONE) }
+            return
+        }
+        pendingWake?.cancel()
+        pendingWake = lifecycleScope.launch {
+            if (deferred) delay(STOP_GRACE_MILLIS)
+            trigger(TriggerSource.WAKE_WORD)
+        }
+    }
+
+    private fun onStopPhrase(now: Long, working: Boolean) {
+        Logger.i("Stop phrase detected, working=$working")
+        VoiceBus.update { it.copy(lastStopAt = now) }
+        pendingWake?.cancel()
+        if (working) cancelCommand()
+        lifecycleScope.launch { playEarcon(if (working) Earcon.ERROR else Earcon.DONE) }
     }
 
     private fun feedCommand(sink: CommandSink, pcm: ShortArray, n: Int, chunk: FloatArray) {
@@ -349,6 +396,11 @@ class VoiceService : LifecycleService() {
             while (true) {
                 if (text.isBlank()) {
                     if (!inCall()) playEarcon(Earcon.ERROR)
+                    break
+                }
+                if (isStopText(text)) {
+                    Logger.i("Stop phrase in transcript: $text")
+                    playEarcon(Earcon.ERROR)
                     break
                 }
                 VoiceBus.update { it.copy(phase = VoicePhase.THINKING, partial = text) }
@@ -469,6 +521,11 @@ class VoiceService : LifecycleService() {
             .also { text -> Logger.i("Heard: $text") }
     }
 
+    private fun isStopText(text: String): Boolean {
+        val s = graph.settings.current
+        return StopText.matches(text, VoiceBus.status.value.stopPhrases.map { it.label }, listOf(s.agentName, s.wakePhrase))
+    }
+
     private suspend fun confirmByVoice(request: ConfirmationRequest) {
         val previous = VoiceBus.status.value.phase
         VoiceBus.update { it.copy(phase = VoicePhase.SPEAKING) }
@@ -531,9 +588,17 @@ class VoiceService : LifecycleService() {
         }
     }
 
-    private fun startEnrollment(append: Boolean) {
+    private fun deleteStopPhrase(id: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            stopPhrases.delete(id)
+            reloadDetectorNow()
+        }
+    }
+
+    private fun startEnrollment(append: Boolean, stop: Pair<String, String>?) {
         commandJob?.cancel()
         enrollAppend = append
+        enrollStop = stop
         enrollSamples = 0
         enrollCounter = UtteranceCounter(AudioSpec.SAMPLE_RATE)
         mode = Mode.ENROLL
@@ -565,9 +630,14 @@ class VoiceService : LifecycleService() {
                     AcousticWakeDetector.buildTemplates(e, audio)
                 }
                 if (built.isNotEmpty()) {
+                    val stop = enrollStop
                     withContext(Dispatchers.IO) {
-                        templates.save(if (enrollAppend) WakeTemplates.merge(templates.load(), built) else built)
-                        saveSample(audio)
+                        if (stop != null) {
+                            stopPhrases.save(stop.first, stop.second, built, enrollAppend)
+                        } else {
+                            templates.save(if (enrollAppend) WakeTemplates.merge(templates.load(), built) else built)
+                            saveSample(audio)
+                        }
                     }
                 }
                 Logger.i("Enrollment built ${built.size} templates")
@@ -648,6 +718,11 @@ class VoiceService : LifecycleService() {
         const val ACTION_ENROLL_CLEAR = "dev.marionette.voice.ENROLL_CLEAR"
         const val ACTION_WAKE_TEST_START = "dev.marionette.voice.WAKE_TEST_START"
         const val ACTION_WAKE_TEST_STOP = "dev.marionette.voice.WAKE_TEST_STOP"
+        const val ACTION_STOP_TEST_START = "dev.marionette.voice.STOP_TEST_START"
+        const val ACTION_STOP_TEST_STOP = "dev.marionette.voice.STOP_TEST_STOP"
+        const val ACTION_STOP_PHRASE_DELETE = "dev.marionette.voice.STOP_PHRASE_DELETE"
+        const val EXTRA_STOP_ID = "stop_id"
+        const val EXTRA_STOP_LABEL = "stop_label"
         const val EXTRA_SOURCE = "source"
 
         private const val NOTIFICATION_ID = 7
@@ -662,6 +737,7 @@ class VoiceService : LifecycleService() {
         private const val SILENCE_PROBABILITY = 0.35f
         private const val SPECULATE_MILLIS = 320L
         private const val CALL_POLL_MILLIS = 1_000L
+        private const val STOP_GRACE_MILLIS = 1_200L
         private val CALL_MODES = setOf(AudioManager.MODE_RINGTONE, AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_CALL_SCREENING)
 
         @Volatile
@@ -670,6 +746,9 @@ class VoiceService : LifecycleService() {
 
         @Volatile
         private var wakeTests = 0
+
+        @Volatile
+        private var stopTests = 0
         private val injected = ConcurrentLinkedQueue<ShortArray>()
 
         fun inject(pcm: ShortArray) {
@@ -685,6 +764,13 @@ class VoiceService : LifecycleService() {
             start(context, intent(context, ACTION_READ_ALOUD).putExtra(EXTRA_TEXT, text).putExtra(EXTRA_FOLLOW_UP, followUp))
 
         fun enroll(context: Context, append: Boolean) = start(context, intent(context, ACTION_ENROLL_START).putExtra(EXTRA_APPEND, append))
+
+        fun enrollStopPhrase(context: Context, id: String, label: String, append: Boolean) = start(
+            context,
+            intent(context, ACTION_ENROLL_START).putExtra(EXTRA_APPEND, append).putExtra(EXTRA_STOP_ID, id).putExtra(EXTRA_STOP_LABEL, label),
+        )
+
+        fun deleteStopPhrase(context: Context, id: String) = start(context, intent(context, ACTION_STOP_PHRASE_DELETE).putExtra(EXTRA_STOP_ID, id))
 
         fun send(context: Context, action: String, source: TriggerSource? = null) {
             val intent = intent(context, action)

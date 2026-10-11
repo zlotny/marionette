@@ -151,6 +151,10 @@ class BackendViewModel : ViewModel() {
                         _form.update { it.copy(pairing = PairState.Failed(result.message)) }
                         return@launch
                     }
+                    LinkResult.TokenOutdated -> {
+                        _form.update { it.copy(pairing = PairState.Unpaired) }
+                        return@launch
+                    }
                 }
                 delay(PAIR_POLL_MILLIS)
             }

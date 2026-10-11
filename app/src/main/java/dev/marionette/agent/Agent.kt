@@ -21,6 +21,7 @@ import dev.marionette.llm.OpenClawLink
 import dev.marionette.llm.Provider
 import dev.marionette.llm.Thinking
 import dev.marionette.llm.ToolCall
+import dev.marionette.screen.MarionetteAccessibilityService
 import dev.marionette.settings.AppSettings
 import dev.marionette.settings.Languages
 import dev.marionette.settings.SettingsStore
@@ -250,6 +251,7 @@ class Agent(
             return final.text.trim()
         } finally {
             watcher?.cancel()
+            if (toolContext.dismissedKeyguard && s.relockAfterScreenControl) MarionetteAccessibilityService.lockScreen()
         }
     }
 
