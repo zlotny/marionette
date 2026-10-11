@@ -10,7 +10,9 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import dev.marionette.core.Logger
-import java.io.File
+import android.os.Build
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.ChannelResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -87,33 +89,27 @@ class Speaker(private val context: Context) {
 
     private suspend fun speakCloud(text: String, cloud: CloudVoice, rate: Float, stop: CompletableDeferred<Unit>): List<String> = coroutineScope {
         val chunks = CloudSpeech.chunks(text)
-        val batch = UUID.randomUUID().toString()
-        val clips = Channel<Result<SpeechClip>>(capacity = 1)
+        val started = System.currentTimeMillis()
+        val streams = Channel<SpeechStream>(capacity = 1)
         val producer = launch {
-            chunks.forEachIndexed { index, chunk ->
-                val file = File(context.cacheDir, "speech-$batch-$index.pcm")
-                val result = runCatching { CloudSpeech.synthesize(cloud, chunk, file) }
-                clips.send(result)
-                if (result.isFailure) return@launch
+            chunks.forEach { chunk ->
+                val stream = SpeechStream()
+                streams.send(stream)
+                if (runCatching { CloudSpeech.stream(cloud, chunk, stream) }.isFailure) return@launch
             }
-            clips.close()
+            streams.close()
         }
         var played = 0
         try {
             while (!stop.isCompleted) {
-                val next = select<Result<SpeechClip>?> {
-                    clips.onReceiveCatching { it.getOrNull() }
+                val stream = select<SpeechStream?> {
+                    streams.onReceiveCatching { it.getOrNull() }
                     stop.onAwait { null }
                 } ?: break
-                val clip = next.getOrElse {
-                    Logger.w("Cloud speech failed", it)
-                    return@coroutineScope chunks.drop(played)
+                val ok = play(stream, rate, stop) {
+                    if (played == 0) Logger.i("Cloud speech first audio after ${System.currentTimeMillis() - started} ms")
                 }
-                try {
-                    play(clip, rate, stop)
-                } finally {
-                    clip.file.delete()
-                }
+                if (!ok) return@coroutineScope chunks.drop(played)
                 played++
             }
         } finally {
@@ -122,36 +118,67 @@ class Speaker(private val context: Context) {
         if (stop.isCompleted) emptyList() else chunks.drop(played)
     }
 
-    private suspend fun play(clip: SpeechClip, rate: Float, stop: CompletableDeferred<Unit>) = withContext(Dispatchers.IO) {
+    private suspend fun play(stream: SpeechStream, rate: Float, stop: CompletableDeferred<Unit>, onFirstAudio: () -> Unit): Boolean = withContext(Dispatchers.IO) {
+        val sampleRate = try {
+            select<Int?> {
+                stream.rate.onAwait { it }
+                stop.onAwait { null }
+            } ?: return@withContext true
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Logger.w("Cloud speech failed", e)
+            return@withContext false
+        }
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .setSampleRate(clip.sampleRate)
+            .setSampleRate(sampleRate)
             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
             .build()
-        val minBuffer = AudioTrack.getMinBufferSize(clip.sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val minBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val track = AudioTrack.Builder()
             .setAudioAttributes(attributes)
             .setAudioFormat(format)
             .setBufferSizeInBytes(minBuffer * 4)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
+        var frames = 0L
+        var carry: Byte? = null
         try {
             track.playbackParams = track.playbackParams.setSpeed(rate)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) runCatching { track.setStartThresholdInFrames(minBuffer / 2 / 2) }
             track.play()
-            val pcm = clip.file.readBytes()
-            val frames = pcm.size / 2
-            var offset = 0
-            while (offset < frames * 2 && !stop.isCompleted) {
-                val written = track.write(pcm, offset, minOf(minBuffer, frames * 2 - offset))
-                if (written <= 0) break
-                offset += written
+            while (!stop.isCompleted) {
+                val received = select<ChannelResult<ByteArray>?> {
+                    stream.data.onReceiveCatching { it }
+                    stop.onAwait { null }
+                } ?: break
+                if (received.isClosed) {
+                    received.exceptionOrNull()?.let {
+                        Logger.w("Cloud speech failed", it)
+                        return@withContext false
+                    }
+                    break
+                }
+                var bytes = received.getOrThrow()
+                carry?.let { bytes = byteArrayOf(it) + bytes }
+                carry = if (bytes.size % 2 == 1) bytes.last() else null
+                val size = bytes.size - bytes.size % 2
+                if (frames == 0L && size > 0) onFirstAudio()
+                var offset = 0
+                while (offset < size && !stop.isCompleted) {
+                    val written = track.write(bytes, offset, size - offset)
+                    if (written <= 0) break
+                    offset += written
+                }
+                frames += size / 2
             }
-            if (!stop.isCompleted) {
-                val drainMillis = (frames * 1000 / clip.sampleRate / rate).toLong() + DRAIN_MARGIN_MILLIS
+            if (!stop.isCompleted && frames > 0) {
+                val drainMillis = (frames * 1000 / sampleRate / rate).toLong() + DRAIN_MARGIN_MILLIS
                 withTimeoutOrNull(drainMillis) {
                     while (track.playbackHeadPosition < frames && !stop.isCompleted) delay(POLL_MILLIS)
                 }
             }
+            true
         } finally {
             runCatching { track.pause(); track.flush() }
             track.release()

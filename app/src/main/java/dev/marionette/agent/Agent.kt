@@ -174,16 +174,19 @@ class Agent(
         val system = prompt.build(s, contextBlock)
         trace.contextBlock = contextBlock
         trace.system = system
+        trace.setupMillis = System.currentTimeMillis() - id
         try {
             repeat(MAX_ROUNDS) { round ->
                 val started = System.currentTimeMillis()
                 val streamed = StringBuilder()
+                var firstText: Long? = null
                 val reply = backend.complete(system, outgoing(), specs) { delta ->
+                    if (firstText == null) firstText = System.currentTimeMillis() - started
                     streamed.append(delta)
                     conversation.update(id) { it.copy(reply = streamed.toString()) }
                 }
                 val elapsed = System.currentTimeMillis() - started
-                trace.round(round, elapsed, reply.text, reply.toolCalls, reply.usage?.inputTokens, reply.usage?.outputTokens)
+                trace.round(round, elapsed, firstText, reply.text, reply.toolCalls, reply.usage?.inputTokens, reply.usage?.outputTokens)
                 modelStats.record(s.provider.name, statsModel, config.thinking?.id.orEmpty(), elapsed, reply.usage?.inputTokens, reply.usage?.outputTokens)
                 val assistant = ChatMessage.Assistant(reply.text, reply.toolCalls, reply.native)
                 history += assistant
@@ -243,16 +246,14 @@ class Agent(
         if (result is LinkResult.Paired) conversation.setSessionThinking(chat.id, wanted) else Logger.w("Thinking not applied: $result")
     }
 
-    private suspend fun watchProgress(s: AppSettings, user: String, onEvent: (LinkEvent) -> Unit): Job? {
+    private fun watchProgress(s: AppSettings, user: String, onEvent: (LinkEvent) -> Unit): Job? {
         val identity = DeviceIdentity.parse(s.gatewayDeviceKey) ?: return null
-        val ready = CompletableDeferred<Unit>()
-        val job = scope.launch(Dispatchers.IO) {
+        return scope.launch(Dispatchers.IO) {
             try {
                 OpenClawLink.watch(
                     s.baseUrl, identity, s.gatewayDeviceToken, user, OpenClawGateway.agentName(s.model),
                     onReady = { paired ->
                         Logger.i("Live progress linked")
-                        ready.complete(Unit)
                         if (paired.token != s.gatewayDeviceToken) scope.launch { settings.update { it.copy(gatewayDeviceToken = paired.token) } }
                     },
                     onEvent = onEvent,
@@ -261,17 +262,8 @@ class Agent(
                 if (e is CancellationException && e !is TimeoutCancellationException) throw e
                 Logger.w("Live progress unavailable", e)
                 if ((e as? LinkException)?.result is LinkResult.PairingRequired) settings.update { it.copy(gatewayDeviceToken = "") }
-            } finally {
-                ready.complete(Unit)
             }
         }
-        try {
-            withTimeoutOrNull(LINK_READY_MILLIS) { ready.await() }
-        } catch (e: CancellationException) {
-            job.cancel()
-            throw e
-        }
-        return job
     }
 
     private suspend fun executeTool(id: Long, call: ToolCall, ctx: ToolContext, source: TurnSource, trace: TraceBuilder): JsonObject {
@@ -336,12 +328,13 @@ class Agent(
         var offeredTools: List<String> = emptyList()
         var reply = ""
         var error: String? = null
+        var setupMillis: Long? = null
         private val rounds = mutableListOf<Map<String, Any?>>()
         private val tools = mutableListOf<Map<String, Any?>>()
 
-        fun round(index: Int, millis: Long, text: String, calls: List<ToolCall>, input: Int?, output: Int?) {
+        fun round(index: Int, millis: Long, firstTextMillis: Long?, text: String, calls: List<ToolCall>, input: Int?, output: Int?) {
             rounds += mapOf(
-                "round" to index, "millis" to millis, "text" to text,
+                "round" to index, "millis" to millis, "first_text_millis" to firstTextMillis, "text" to text,
                 "tool_calls" to calls.map { mapOf("id" to it.id, "name" to it.name, "arguments" to parseObject(it.arguments)) },
                 "input_tokens" to input, "output_tokens" to output,
             )
@@ -354,7 +347,7 @@ class Agent(
         fun build(): JsonObject = jsonOf(
             "turn" to id, "source" to source.name, "input" to input, "backend" to backend, "offered_tools" to offeredTools,
             "system" to system, "context_block" to contextBlock, "rounds" to rounds, "tools" to tools, "reply" to reply, "error" to error,
-            "total_millis" to System.currentTimeMillis() - id,
+            "setup_millis" to setupMillis, "total_millis" to System.currentTimeMillis() - id,
         )
     }
 
@@ -364,7 +357,6 @@ class Agent(
         private const val MAX_ROUNDS = 8
         private const val MAX_HISTORY = 40
         private const val SESSION_IDLE_MILLIS = 5 * 60_000L
-        private const val LINK_READY_MILLIS = 1_500L
         private const val PATCH_MILLIS = 4_000L
         private const val QUIET_NOTE = "muted: the user is listening to the music or the call now, so the rest of this turn is shown on screen and not spoken"
     }

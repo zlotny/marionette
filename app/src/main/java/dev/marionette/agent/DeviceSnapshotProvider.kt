@@ -28,6 +28,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import java.time.ZonedDateTime
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -35,7 +38,9 @@ import kotlin.coroutines.resume
 class DeviceSnapshotProvider(private val context: Context) {
     private val fused by lazy { LocationServices.getFusedLocationProviderClient(context) }
     private var cachedLocation: Location? = null
+    private var cachedAt = 0L
     private var cachedPlace: Pair<String, String?>? = null
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val locating = Mutex()
     private val geocoding = Mutex()
 
@@ -58,8 +63,8 @@ class DeviceSnapshotProvider(private val context: Context) {
     @SuppressLint("MissingPermission")
     private suspend fun freshLocation(): Location? {
         if (!hasLocationPermission()) return null
-        cachedLocation?.takeIf(::isRecent)?.let { return it }
-        runCatching { fused.lastLocation.awaitOrNull() }.getOrNull()?.takeIf(::isRecent)?.let { return it.also { cachedLocation = it } }
+        cachedLocation?.takeIf { SystemClock.elapsedRealtime() - cachedAt < LOCATION_MAX_AGE_MILLIS }?.let { return it }
+        runCatching { fused.lastLocation.awaitOrNull() }.getOrNull()?.takeIf(::isRecent)?.let { return remember(it) }
         val fresh = runCatching {
             withTimeoutOrNull(LOCATION_TIMEOUT_MILLIS) {
                 val token = CancellationTokenSource()
@@ -71,15 +76,27 @@ class DeviceSnapshotProvider(private val context: Context) {
             }
         }.onFailure { Logger.w("Location failed", it) }.getOrNull()
         val result = fresh ?: runCatching { fused.lastLocation.awaitOrNull() }.getOrNull()
-        if (result != null) cachedLocation = result
-        return result
+        return result?.let(::remember)
     }
+
+    private fun remember(location: Location): Location {
+        cachedLocation = location
+        cachedAt = SystemClock.elapsedRealtime()
+        return location
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun quickLocation(): Location? = background.async { location() }.let { pending -> withTimeoutOrNull(SNAPSHOT_LOCATION_MILLIS) { pending.await() } }
+        ?: cachedLocation
+        ?: if (hasLocationPermission()) runCatching { fused.lastLocation.awaitOrNull() }.getOrNull() else null
+
+    private suspend fun quickPlace(location: Location, locale: String): String? = background.async { placeName(location, locale) }.let { pending -> withTimeoutOrNull(SNAPSHOT_PLACE_MILLIS) { pending.await() } }
 
     private fun isRecent(location: Location): Boolean =
         (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000 < LOCATION_MAX_AGE_MILLIS
 
     suspend fun snapshot(fields: Set<ContextField>, language: String): DeviceSnapshot {
-        val location = if (ContextField.LOCATION in fields || ContextField.MOTION in fields) location() else null
+        val location = if (ContextField.LOCATION in fields || ContextField.MOTION in fields) quickLocation() else null
         val battery = context.getSystemService(BatteryManager::class.java)
         val uiMode = context.getSystemService(UiModeManager::class.java)
         val locale = language.ifBlank { Locale.getDefault().toLanguageTag() }
@@ -89,7 +106,7 @@ class DeviceSnapshotProvider(private val context: Context) {
             latitude = location?.latitude,
             longitude = location?.longitude,
             accuracyMeters = location?.takeIf { it.hasAccuracy() }?.accuracy,
-            place = if (ContextField.LOCATION in fields) location?.let { placeName(it, locale) } else null,
+            place = if (ContextField.LOCATION in fields) location?.let { quickPlace(it, locale) } else null,
             speedKmh = location?.takeIf { it.hasSpeed() }?.speed?.times(3.6f),
             headingDegrees = location?.takeIf { it.hasBearing() && it.speed > 1f }?.bearing,
             batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it in 0..100 },
@@ -153,6 +170,8 @@ class DeviceSnapshotProvider(private val context: Context) {
         private const val LOCATION_MAX_AGE_MILLIS = 15_000L
         private const val LOCATION_TIMEOUT_MILLIS = 4_000L
         private const val GEOCODER_TIMEOUT_MILLIS = 2_500L
+        private const val SNAPSHOT_LOCATION_MILLIS = 800L
+        private const val SNAPSHOT_PLACE_MILLIS = 600L
         private val BLUETOOTH_TYPES = setOf(
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
             AudioDeviceInfo.TYPE_BLUETOOTH_SCO,

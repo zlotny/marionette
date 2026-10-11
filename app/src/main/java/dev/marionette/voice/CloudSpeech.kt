@@ -10,7 +10,8 @@ import dev.marionette.core.string
 import dev.marionette.llm.toLlmException
 import dev.marionette.settings.AppSettings
 import dev.marionette.settings.TtsCloud
-import java.io.File
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -35,7 +36,10 @@ data class CloudVoice(val baseUrl: String, val key: String, val model: String, v
     }
 }
 
-data class SpeechClip(val file: File, val sampleRate: Int)
+class SpeechStream {
+    val rate = CompletableDeferred<Int>()
+    val data = Channel<ByteArray>(Channel.UNLIMITED)
+}
 
 data class SpeechModel(val id: String, val name: String, val voices: List<String>, val usdPerHour: Double? = null)
 
@@ -44,6 +48,7 @@ object CloudSpeech {
     private const val FIRST_CHUNK = 160
     private const val CHUNK = 600
     private const val SAMPLE_RATE = 24_000
+    private const val READ_BYTES = 4096
 
     fun requestBody(voice: CloudVoice, text: String): JsonObject = buildJsonObject {
         put("model", voice.model)
@@ -52,16 +57,29 @@ object CloudSpeech {
         put("response_format", "pcm")
     }
 
-    suspend fun synthesize(voice: CloudVoice, text: String, target: File, client: OkHttpClient = Http.client): SpeechClip = withContext(Dispatchers.IO) {
+    suspend fun stream(voice: CloudVoice, text: String, target: SpeechStream, client: OkHttpClient = Http.client) = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("${voice.baseUrl.trimEnd('/')}/audio/speech")
             .header("Authorization", "Bearer ${voice.key}")
             .post(AppJson.encodeToString(JsonObject.serializer(), requestBody(voice, text)).toRequestBody(JSON))
             .build()
-        client.newCall(request).await().use { response ->
-            if (!response.isSuccessful) throw response.toLlmException()
-            target.outputStream().use { response.body.byteStream().copyTo(it) }
-            SpeechClip(target, sampleRate(response.header("Content-Type")))
+        try {
+            client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) throw response.toLlmException()
+                target.rate.complete(sampleRate(response.header("Content-Type")))
+                val source = response.body.source()
+                val buffer = ByteArray(READ_BYTES)
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    if (read > 0) target.data.send(buffer.copyOf(read))
+                }
+            }
+            target.data.close()
+        } catch (e: Throwable) {
+            target.rate.completeExceptionally(e)
+            target.data.close(e)
+            throw e
         }
     }
 

@@ -6,6 +6,10 @@ interface SttSession {
     suspend fun finish(): String
 
     fun cancel()
+
+    fun speculate() = Unit
+
+    fun dropSpeculation() = Unit
 }
 
 interface SpeechToText {

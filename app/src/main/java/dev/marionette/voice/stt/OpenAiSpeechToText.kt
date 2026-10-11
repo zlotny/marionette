@@ -6,7 +6,13 @@ import dev.marionette.core.parseObject
 import dev.marionette.core.string
 import dev.marionette.llm.toLlmException
 import dev.marionette.voice.AudioSpec
+import dev.marionette.core.Logger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -27,6 +33,8 @@ class OpenAiSpeechToText(
 
     override suspend fun start(language: String, secondLanguage: String, onPartial: (String) -> Unit): SttSession = object : SttSession {
         private val audio = ByteArrayOutputStream()
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        @Volatile private var speculation: Deferred<String>? = null
 
         override fun accept(pcm: ShortArray, count: Int) {
             val bytes = ByteBuffer.allocate(count * 2).order(ByteOrder.LITTLE_ENDIAN)
@@ -34,29 +42,51 @@ class OpenAiSpeechToText(
             synchronized(audio) { audio.write(bytes.array()) }
         }
 
-        override suspend fun finish(): String = withContext(Dispatchers.IO) {
-            val pcm = synchronized(audio) { audio.toByteArray() }
-            if (pcm.size < AudioSpec.SAMPLE_RATE / 2) return@withContext ""
-            val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-                .addFormDataPart("model", model)
-                .addFormDataPart("response_format", "json")
-                .apply {
-                    if (secondLanguage.isBlank()) language.substringBefore('-').takeIf { it.length == 2 }?.let { addFormDataPart("language", it) }
-                }
-                .addFormDataPart("file", "speech.wav", wav(pcm).toRequestBody("audio/wav".toMediaType()))
-                .build()
-            val request = Request.Builder()
-                .url("${baseUrl.trimEnd('/')}/audio/transcriptions")
-                .header("Authorization", "Bearer ${apiKey()}")
-                .post(body)
-                .build()
-            Http.client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) throw SttException(response.toLlmException().message ?: "HTTP ${response.code}")
-                parseObject(response.body.string()).string("text").orEmpty().trim()
-            }
+        override fun speculate() {
+            if (speculation != null) return
+            val pcm = snapshot()
+            speculation = scope.async { transcribe(pcm, language, secondLanguage) }
         }
 
-        override fun cancel() = Unit
+        override fun dropSpeculation() {
+            speculation?.cancel()
+            speculation = null
+        }
+
+        override suspend fun finish(): String {
+            val early = speculation
+            if (early != null) {
+                runCatching { early.await() }.onSuccess { return it }
+            }
+            return transcribe(snapshot(), language, secondLanguage)
+        }
+
+        override fun cancel() = scope.cancel()
+
+        private fun snapshot(): ByteArray = synchronized(audio) { audio.toByteArray() }
+    }
+
+    private suspend fun transcribe(pcm: ByteArray, language: String, secondLanguage: String): String = withContext(Dispatchers.IO) {
+        if (pcm.size < AudioSpec.SAMPLE_RATE / 2) return@withContext ""
+        val started = System.currentTimeMillis()
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("model", model)
+            .addFormDataPart("response_format", "json")
+            .apply {
+                if (secondLanguage.isBlank()) language.substringBefore('-').takeIf { it.length == 2 }?.let { addFormDataPart("language", it) }
+            }
+            .addFormDataPart("file", "speech.wav", wav(pcm).toRequestBody("audio/wav".toMediaType()))
+            .build()
+        val request = Request.Builder()
+            .url("${baseUrl.trimEnd('/')}/audio/transcriptions")
+            .header("Authorization", "Bearer ${apiKey()}")
+            .post(body)
+            .build()
+        Http.client.newCall(request).await().use { response ->
+            if (!response.isSuccessful) throw SttException(response.toLlmException().message ?: "HTTP ${response.code}")
+            parseObject(response.body.string()).string("text").orEmpty().trim()
+                .also { Logger.i("Cloud STT ${pcm.size / 32} ms of audio in ${System.currentTimeMillis() - started} ms") }
+        }
     }
 
     companion object {

@@ -27,6 +27,7 @@ import dev.marionette.agent.ConfirmationRequest
 import dev.marionette.agent.Turn
 import dev.marionette.agent.TurnSource
 import dev.marionette.agent.TurnStatus
+import dev.marionette.core.Http
 import dev.marionette.core.Logger
 import dev.marionette.settings.Credential
 import dev.marionette.settings.SttEngine
@@ -283,13 +284,15 @@ class VoiceService : LifecycleService() {
         val probability = vad?.accept(chunk) ?: energyProbability(chunk)
         val chunkMillis = n * 1000L / AudioSpec.SAMPLE_RATE
         sink.elapsedMillis += chunkMillis
+        val silenceLimit = graph.settings.current.silenceMillis.toLong()
+        if (probability >= SILENCE_PROBABILITY && sink.silenceMillis >= SPECULATE_MILLIS) sink.session.dropSpeculation()
         if (probability >= SPEECH_PROBABILITY) {
             sink.speechStarted = true
             sink.silenceMillis = 0
         } else if (sink.speechStarted && probability < SILENCE_PROBABILITY) {
             sink.silenceMillis += chunkMillis
+            if (sink.silenceMillis >= SPECULATE_MILLIS && silenceLimit > SPECULATE_MILLIS) sink.session.speculate()
         }
-        val silenceLimit = graph.settings.current.silenceMillis.toLong()
         when {
             sink.speechStarted && sink.silenceMillis >= silenceLimit -> sink.endpoint.complete(Endpoint.SPEECH_END)
             !sink.speechStarted && sink.elapsedMillis >= sink.noSpeechMillis -> sink.endpoint.complete(Endpoint.NO_SPEECH)
@@ -328,7 +331,10 @@ class VoiceService : LifecycleService() {
         acquireWakeLock()
         try {
             Logger.i("Voice turn from $source")
-            graph.settings.current.let { s -> if (s.sendContext) lifecycleScope.launch { graph.device.prefetch(s.contextFields, s.language) } }
+            graph.settings.current.let { s ->
+                if (s.sendContext) lifecycleScope.launch { graph.device.prefetch(s.contextFields, s.language) }
+                Http.warm(listOfNotNull(s.sttCloud.baseUrl.takeIf { s.sttEngine == SttEngine.CLOUD }, s.baseUrl, s.ttsCloud.baseUrl.takeIf { s.cloudSpeech }))
+            }
             graph.playback.hold()
             var text = if (readAloud == null) {
                 listen(NO_SPEECH_MILLIS, earcon = true)
@@ -448,7 +454,9 @@ class VoiceService : LifecycleService() {
         }
         lifecycleScope.launch { playEarcon(Earcon.WORKING) }
         VoiceBus.update { it.copy(phase = VoicePhase.TRANSCRIBING) }
+        val transcribing = System.currentTimeMillis()
         return runCatching { session.finish() }
+            .also { Logger.i("Transcript ready ${System.currentTimeMillis() - transcribing} ms after endpoint") }
             .onSuccess { VoiceBus.update { s -> s.copy(speechLanguageMissing = false) } }
             .onFailure {
                 Logger.w("STT failed", it)
@@ -651,6 +659,7 @@ class VoiceService : LifecycleService() {
         private const val TURN_WAKE_LOCK_MILLIS = 120_000L
         private const val SPEECH_PROBABILITY = 0.55f
         private const val SILENCE_PROBABILITY = 0.35f
+        private const val SPECULATE_MILLIS = 320L
         private const val CALL_POLL_MILLIS = 1_000L
         private val CALL_MODES = setOf(AudioManager.MODE_RINGTONE, AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_CALL_SCREENING)
 

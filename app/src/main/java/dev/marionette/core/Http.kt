@@ -3,6 +3,8 @@ package dev.marionette.core
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Request
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import java.io.IOException
@@ -21,6 +23,15 @@ object Http {
             chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())
         }
         .build()
+
+    fun warm(urls: List<String>) {
+        urls.mapNotNull { it.toHttpUrlOrNull()?.resolve("/") }.distinctBy { it.host to it.port }.forEach { url ->
+            client.newCall(Request.Builder().url(url).head().build()).enqueue(object : Callback {
+                override fun onResponse(call: Call, response: Response) = response.close()
+                override fun onFailure(call: Call, e: IOException) = Unit
+            })
+        }
+    }
 }
 
 suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
