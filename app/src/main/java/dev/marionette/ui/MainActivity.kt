@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.activity.BackEventCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -87,6 +88,8 @@ class MainActivity : ComponentActivity() {
             exitTransition = { fadeOut() },
             popEnterTransition = { fadeIn() },
             popExitTransition = { slideOutHorizontally { it / 4 } + fadeOut() },
+            predictivePopEnterTransition = { fadeIn() },
+            predictivePopExitTransition = { edge -> slideOutHorizontally { if (edge == BackEventCompat.EDGE_RIGHT) -it else it } },
         ) {
             composable<OnboardingRoute> {
                 OnboardingScreen(onDone = {
