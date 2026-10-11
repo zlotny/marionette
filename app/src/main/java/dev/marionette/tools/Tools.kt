@@ -24,6 +24,7 @@ object Tools {
         OpenAppTool(),
         OpenUrlTool(),
         ShareTextTool(),
+        ShowInChatTool(),
         OpenSettingsTool(),
         DeviceSettingTool(),
         UiReadTool(),

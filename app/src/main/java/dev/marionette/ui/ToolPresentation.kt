@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.ClearAll
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.Directions
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Attachment
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Notifications
@@ -59,6 +60,7 @@ object ToolPresentations {
         "ui_act" to ToolPresentation(Icons.Rounded.TouchApp, R.string.tool_ui_act, R.string.tool_ui_act_desc, R.string.activity_ui_act),
         "list_apps" to ToolPresentation(Icons.Rounded.Apps, R.string.tool_list_apps, R.string.tool_list_apps_desc, R.string.activity_list_apps),
         "open_url" to ToolPresentation(Icons.Rounded.Link, R.string.tool_open_url, R.string.tool_open_url_desc, R.string.activity_open_url),
+        "show_in_chat" to ToolPresentation(Icons.Rounded.Attachment, R.string.tool_show_in_chat, R.string.tool_show_in_chat_desc, R.string.activity_show_in_chat),
         "share_text" to ToolPresentation(Icons.Rounded.Share, R.string.tool_share_text, R.string.tool_share_text_desc, R.string.activity_share_text),
         "open_settings" to ToolPresentation(Icons.Rounded.Settings, R.string.tool_open_settings, R.string.tool_open_settings_desc, R.string.activity_open_settings),
         "notification_action" to ToolPresentation(Icons.Rounded.Notifications, R.string.tool_notification_action, R.string.tool_notification_action_desc, R.string.activity_notification_action),

@@ -110,6 +110,7 @@
     <string name="tool_list_apps">Apps</string>
     <string name="tool_open_url">Abrir enlace</string>
     <string name="tool_share_text">Compartir</string>
+    <string name="tool_show_in_chat">Mostrar en el chat</string>
     <string name="tool_open_settings">Ajustes</string>
     <string name="tool_notification_action">Notificación</string>
     <string name="tool_dismiss_notification">Descartar</string>
@@ -303,6 +304,7 @@
     <string name="tool_list_apps_desc">Ver qué apps hay instaladas.</string>
     <string name="tool_open_app_desc">Abrir una app.</string>
     <string name="tool_open_url_desc">Abrir una web o un enlace de app.</string>
+    <string name="tool_show_in_chat_desc">Dejar enlaces, imágenes, código o texto en el chat en vez de leerlos en voz alta.</string>
     <string name="tool_share_text_desc">Compartir texto con otra app.</string>
     <string name="tool_open_settings_desc">Abrir una página de los ajustes del sistema.</string>
     <string name="tool_device_setting_desc">Cambiar volumen, linterna, brillo, Wi-Fi y similares.</string>
@@ -354,6 +356,7 @@
     <string name="activity_ui_act">Usar la pantalla: %1$s</string>
     <string name="activity_list_apps">Ver las apps</string>
     <string name="activity_open_url">Abrir enlace: %1$s</string>
+    <string name="activity_show_in_chat">Mostrado en el chat: %1$s</string>
     <string name="activity_share_text">Compartir: %1$s</string>
     <string name="activity_open_settings">Abrir ajustes: %1$s</string>
     <string name="activity_notification_action">Botón de notificación: %1$s</string>

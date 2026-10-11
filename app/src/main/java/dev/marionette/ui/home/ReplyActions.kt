@@ -103,7 +103,7 @@ fun ReplyActions(turn: Turn, last: Boolean) {
     if (details) TurnDetailsSheet(turn, onDismiss = { details = false })
 }
 
-private fun copy(context: Context, text: String) {
+internal fun copy(context: Context, text: String) {
     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(text.take(40), text))
     Toast.makeText(context, R.string.reply_copied, Toast.LENGTH_SHORT).show()
 }

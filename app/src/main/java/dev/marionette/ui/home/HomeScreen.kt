@@ -99,6 +99,8 @@ import dev.marionette.access.Access
 import dev.marionette.agent.Note
 import dev.marionette.agent.StepStatus
 import dev.marionette.agent.ToolStep
+import dev.marionette.tools.Attachment
+import dev.marionette.tools.ShowInChatTool
 import dev.marionette.agent.Turn
 import dev.marionette.agent.TurnStatus
 import dev.marionette.ui.ToolPresentations
@@ -387,7 +389,7 @@ private fun TurnItem(turn: Turn, last: Boolean) {
             turn.steps.forEach { step ->
                 when (step) {
                     is Note -> NoteLine(step)
-                    is ToolStep -> StepLine(step)
+                    is ToolStep -> Attachment.parse(step.detail.takeIf { step.tool == ShowInChatTool.NAME })?.let { AttachmentCard(it) } ?: StepLine(step)
                 }
             }
             when {
