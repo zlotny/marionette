@@ -12,8 +12,8 @@ android {
         applicationId = "dev.marionette"
         minSdk = 29
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.0.0"
+        versionCode = 4
+        versionName = "1.0.1"
         ndk { abiFilters += "arm64-v8a" }
     }
 

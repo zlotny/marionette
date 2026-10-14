@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -58,7 +59,6 @@ import dev.marionette.voice.VoiceStatus
 import dev.marionette.voice.stt.AndroidSpeechToText
 import kotlinx.coroutines.delay
 import java.net.URI
-import java.util.Locale
 
 enum class Issue { OFFLINE, UNREACHABLE, REJECTED, FAILING, VOICE_OFF, SPEECH_LANGUAGE, NO_WAKE }
 
@@ -145,7 +145,7 @@ fun HealthSheet(
         Issue.REJECTED -> stringResource(R.string.health_auth_body, host)
         Issue.FAILING -> stringResource(R.string.health_error_body, host, (backend as? BackendHealth.Failing)?.message.orEmpty())
         Issue.VOICE_OFF -> stringResource(R.string.health_voice_off_body)
-        Issue.SPEECH_LANGUAGE -> stringResource(R.string.health_language_body, Languages.displayName(settings.language.ifBlank { Locale.getDefault().toLanguageTag() }))
+        Issue.SPEECH_LANGUAGE -> stringResource(R.string.health_language_body, Languages.displayName(settings.language.ifBlank { LocalConfiguration.current.locales[0].toLanguageTag() }))
         Issue.NO_WAKE -> stringResource(R.string.health_wake_body, name)
     }
     val backendIssue = issue in setOf(Issue.OFFLINE, Issue.UNREACHABLE, Issue.REJECTED, Issue.FAILING)
