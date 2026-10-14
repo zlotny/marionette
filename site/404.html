@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Page not found · Marionette</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<script>
+(() => {
+  let theme = null;
+  try { theme = localStorage.getItem("theme"); } catch (e) {}
+  if (theme !== "light" && theme !== "dark") theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.dataset.theme = theme;
+})();
+</script>
+<link href="https://api.fontshare.com/v2/css?f[]=sentient@300,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .lost { min-height: 100svh; display: grid; place-content: center; gap: var(--space-md); text-align: center; }
+  .lost h1 { font-size: var(--text-3xl); }
+  .lost p { color: var(--color-ink-2); }
+</style>
+</head>
+<body>
+<main class="page lost">
+  <h1>This string leads <b>nowhere.</b></h1>
+  <p>The page you asked for does not exist.</p>
+  <p><a class="btn btn-fill" href="/">Go to Marionette</a></p>
+</main>
+</body>
+</html>

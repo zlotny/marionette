@@ -33,7 +33,10 @@
       );
     });
   };
+  const warm = () => document.querySelectorAll(".device__screen img").forEach(img => { img.loading = "eager"; });
+  ["pointerenter", "pointerdown", "focus"].forEach(type => toggle.addEventListener(type, warm, { once: true, passive: true }));
   toggle.addEventListener("click", () => {
+    warm();
     const next = root.dataset.theme === "dark" ? "light" : "dark";
     store(next === (system.matches ? "dark" : "light") ? null : next);
     swap(next);
