@@ -12,14 +12,28 @@ android {
         applicationId = "dev.marionette"
         minSdk = 29
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "1.0.0"
         ndk { abiFilters += "arm64-v8a" }
+    }
+
+    signingConfigs {
+        providers.gradleProperty("marionette.keystore").orNull?.let { keystore ->
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = providers.gradleProperty("marionette.keystorePassword").get()
+                keyAlias = providers.gradleProperty("marionette.keyAlias").get()
+                keyPassword = providers.gradleProperty("marionette.keyPassword").get()
+            }
+        }
     }
 
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+        }
+        release {
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
