@@ -25,6 +25,7 @@
   try { theme = localStorage.getItem("theme"); } catch (e) {}
   if (theme !== "light" && theme !== "dark") theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   document.documentElement.dataset.theme = theme;
+  document.documentElement.classList.add("js");
 })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -66,16 +67,16 @@
 
     <div class="page">
       <div class="hero__copy">
-        <h1 class="enter">Put your phone down.<br><b>It keeps working.</b></h1>
-        <p class="hero__lede enter">Marionette is a voice assistant for Android that really does things. Say your phrase and talk. It runs your phone, and hands everything else to your own AI agent.</p>
-        <div class="hero__cta enter">
+        <h1><span class="line enter" style="--d: 60ms">Put your phone down.</span> <b class="line enter" style="--d: 150ms">It keeps working.</b></h1>
+        <p class="hero__lede enter" style="--d: 240ms">Marionette is a voice assistant for Android that really does things. Say your phrase and talk. It runs your phone, and hands everything else to your own AI agent.</p>
+        <div class="hero__cta enter" style="--d: 320ms">
           <a class="btn btn-fill" href="https://github.com/zlotny/marionette/releases/latest/download/marionette.apk">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
             Download the APK
           </a>
-          <span class="hero__note">v1.0 · 97 MB · Android 10+</span>
+          <span class="hero__note">Free · v1.0 · 97 MB · Android 10+</span>
         </div>
-        <details class="why enter">
+        <details class="why enter" style="--d: 390ms">
           <summary>Why an APK and not the Play Store?</summary>
           <p>To act for you, Marionette needs access that Google Play limits: sending text messages, seeing every app you have installed, operating other apps through accessibility, and using your location in the background. A store version would lose those abilities. The APK keeps all of them, and you still choose which ones to switch on.</p>
         </details>
@@ -183,7 +184,7 @@
         <h3>Yours, and only yours.</h3>
         <div>
           <p>Marionette talks directly to the model you choose. There is no middleman and no subscription. Your keys stay encrypted on your phone.</p>
-          <p>Every line of code is open to read.</p>
+          <p>The code is public domain under the <a class="textlink" href="https://github.com/zlotny/marionette/blob/main/LICENSE">Unlicense</a>. Read it, fork it, ship it.</p>
           <p class="providers">Works with OpenClaw, Anthropic, OpenAI, Google Gemini, OpenRouter, and any OpenAI-compatible API.</p>
         </div>
       </div>
@@ -203,7 +204,7 @@
       <a class="btn btn-line" href="https://github.com/zlotny/marionette">Source on GitHub</a>
     </div>
     <div class="close__foot">
-      <span>Marionette 1.0.0</span>
+      <span>Marionette 1.0.0 · Public domain</span>
       <nav class="close__links" aria-label="Project">
         <a class="textlink" href="https://github.com/zlotny/marionette/releases">Releases</a>
         <a class="textlink" href="https://github.com/zlotny/marionette">Source</a>

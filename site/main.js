@@ -13,12 +13,32 @@
     themeColor.content = theme === "dark" ? "#0b0c0e" : "#faf6f0";
   };
   apply(root.dataset.theme || (system.matches ? "dark" : "light"));
+  const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const swap = theme => {
+    if (still()) return apply(theme);
+    if (!document.startViewTransition) {
+      root.classList.add("theme-fading");
+      apply(theme);
+      setTimeout(() => root.classList.remove("theme-fading"), 500);
+      return;
+    }
+    const box = toggle.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    const y = box.top + box.height / 2;
+    const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    document.startViewTransition(() => apply(theme)).ready.then(() => {
+      root.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+        { duration: 700, easing: "cubic-bezier(0.65, 0, 0.35, 1)", pseudoElement: "::view-transition-new(root)" }
+      );
+    });
+  };
   toggle.addEventListener("click", () => {
     const next = root.dataset.theme === "dark" ? "light" : "dark";
     store(next === (system.matches ? "dark" : "light") ? null : next);
-    apply(next);
+    swap(next);
   });
-  system.addEventListener("change", e => { if (!stored()) apply(e.matches ? "dark" : "light"); });
+  system.addEventListener("change", e => { if (!stored()) swap(e.matches ? "dark" : "light"); });
 })();
 
 (() => {
@@ -38,6 +58,16 @@
     }
   };
   document.querySelectorAll(".strands").forEach((host, i) => fill(host, (narrow ? 16 : 40) >> i));
+
+  const diagram = document.querySelector(".diagram");
+  if ("IntersectionObserver" in window) {
+    const io = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) { diagram.classList.add("on"); io.disconnect(); }
+    }, { threshold: 0.2 });
+    io.observe(diagram);
+  } else {
+    diagram.classList.add("on");
+  }
 
   if (still) return;
   const puppet = document.getElementById("puppet");

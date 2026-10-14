@@ -23,6 +23,7 @@
   --color-shadow-deep:  oklch(40% 0.060 60 / 0.30);
   --color-device:       oklch(98.5% 0.006 80);
   --color-device-edge:  oklch(90% 0.020 72);
+  --color-device-side:  oklch(83% 0.026 70);
 
   --font-display: "Sentient", "Iowan Old Style", ui-serif, serif;
   --font-body:    "Geist", ui-sans-serif, sans-serif;
@@ -88,6 +89,7 @@
   --color-shadow-deep:  oklch(3% 0.004 260 / 0.75);
   --color-device:       oklch(18% 0.005 260);
   --color-device-edge:  oklch(32% 0.010 260);
+  --color-device-side:  oklch(9% 0.004 260);
   --color-scanline:     oklch(4% 0.004 260 / 0.22);
   --color-text-glow:    oklch(80% 0.160 75 / 0.32);
 
