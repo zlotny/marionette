@@ -1,0 +1,63 @@
+:root {
+  --color-paper:        oklch(97.5% 0.010 78);
+  --color-paper-2:      oklch(95% 0.016 74);
+  --color-paper-3:      oklch(91.5% 0.022 72);
+  --color-paper-veil:   oklch(97.5% 0.010 78 / 0.78);
+  --color-ink:          oklch(24% 0.014 52);
+  --color-ink-2:        oklch(40% 0.014 52);
+  --color-muted:        oklch(52% 0.016 56);
+  --color-rule:         oklch(86% 0.020 72);
+  --color-rule-2:       oklch(90% 0.016 74);
+  --color-accent:       oklch(74% 0.115 76);
+  --color-accent-deep:  oklch(50% 0.100 66);
+  --color-accent-soft:  oklch(86% 0.070 80);
+  --color-accent-glow:  oklch(96% 0.050 85);
+  --color-accent-halo:  oklch(80% 0.120 78 / 0.55);
+  --color-accent-ink:   oklch(24% 0.014 52);
+  --color-focus:        oklch(60% 0.170 66);
+  --color-peach:        oklch(91% 0.040 52);
+  --color-sage:         oklch(92% 0.032 140);
+  --color-lavender:     oklch(91% 0.032 292);
+  --color-shadow:       oklch(45% 0.060 60 / 0.22);
+  --color-shadow-deep:  oklch(40% 0.060 60 / 0.30);
+  --color-device:       oklch(98.5% 0.006 80);
+  --color-device-edge:  oklch(90% 0.020 72);
+
+  --font-display: "Sentient", "Iowan Old Style", ui-serif, serif;
+  --font-body:    "Geist", ui-sans-serif, sans-serif;
+  --font-outlier: "Geist Mono", ui-monospace, monospace;
+
+  --space-3xs: 0.25rem;
+  --space-2xs: 0.5rem;
+  --space-xs:  0.75rem;
+  --space-sm:  1rem;
+  --space-md:  1.5rem;
+  --space-lg:  2rem;
+  --space-xl:  3rem;
+  --space-2xl: 4.5rem;
+  --space-3xl: 7rem;
+  --space-4xl: 10rem;
+  --page-gutter: clamp(1rem, 4vw, 3rem);
+
+  --text-xs:  0.75rem;
+  --text-sm:  0.875rem;
+  --text-md:  1.0625rem;
+  --text-lg:  1.3125rem;
+  --text-xl:  1.75rem;
+  --text-2xl: 2.375rem;
+  --text-3xl: clamp(2.25rem, 4.6vw, 3.75rem);
+  --text-display: clamp(2.75rem, 6.2vw, 5.25rem);
+
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in:     cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-short: 180ms;
+  --dur-mid:   420ms;
+  --dur-long:  1100ms;
+
+  --rule-hair: 1px;
+  --radius-pill: 999px;
+  --radius-node: 28px;
+  --radius-device: 52px;
+  --radius-screen: 42px;
+}
