@@ -61,3 +61,31 @@
   --radius-device: 52px;
   --radius-screen: 42px;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper:        oklch(17% 0.012 62);
+    --color-paper-2:      oklch(20.5% 0.014 62);
+    --color-paper-3:      oklch(25% 0.016 64);
+    --color-paper-veil:   oklch(17% 0.012 62 / 0.72);
+    --color-ink:          oklch(93% 0.012 80);
+    --color-ink-2:        oklch(80% 0.014 76);
+    --color-muted:        oklch(66% 0.016 70);
+    --color-rule:         oklch(33% 0.018 66);
+    --color-rule-2:       oklch(27% 0.016 66);
+    --color-accent:       oklch(76% 0.115 78);
+    --color-accent-deep:  oklch(81% 0.110 80);
+    --color-accent-soft:  oklch(50% 0.080 72);
+    --color-accent-glow:  oklch(95% 0.050 85);
+    --color-accent-halo:  oklch(80% 0.120 78 / 0.55);
+    --color-accent-ink:   oklch(17% 0.012 62);
+    --color-focus:        oklch(80% 0.160 74);
+    --color-peach:        oklch(27% 0.035 48);
+    --color-sage:         oklch(27% 0.028 145);
+    --color-lavender:     oklch(27% 0.035 292);
+    --color-shadow:       oklch(8% 0.020 60 / 0.55);
+    --color-shadow-deep:  oklch(5% 0.020 60 / 0.70);
+    --color-device:       oklch(27% 0.012 62);
+    --color-device-edge:  oklch(38% 0.018 64);
+  }
+}

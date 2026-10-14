@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Marionette</title>
 <meta name="description" content="A hands-free Android assistant that really does things. Say your phrase, put the phone away.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -29,15 +30,10 @@
       <div class="puppet" id="puppet">
         <div class="puppet__strings"><i style="left:24%"></i><i style="left:50%"></i><i style="left:76%"></i></div>
         <div class="device">
-          <div class="device__screen">
-            <p class="bubble">Take me to the nearest gas station that's open, and tell Ana I'm 20 minutes late.</p>
-            <p class="trace">find_places · navigate · send_sms</p>
-            <p class="reply">On your way. Repsol is 1.2 km ahead. Ana knows you're late.</p>
-            <p class="bubble">Move my 11:00 to the afternoon and let the team know.</p>
-            <p class="trace">your agent · calendar · email</p>
-            <p class="reply">Done. It's at 15:00 now, and the team has the update.</p>
-            <div class="listening"><i></i><i></i><i></i><i></i><i></i></div>
-          </div>
+          <picture class="device__screen">
+            <source srcset="img/app-dark.png" media="(prefers-color-scheme: dark)">
+            <img src="img/app-light.png" alt="Marionette on a Pixel: a request for an open ramen place in Madrid with a vegetarian broth, answered with a place search, three web searches, the menu page and a link card." width="1080" height="2410">
+          </picture>
         </div>
       </div>
     </div>
@@ -110,7 +106,7 @@
     <div class="page">
       <h2 id="say-title">Things you can say <b>with your hands full.</b></h2>
       <ol>
-        <li><q>Find a pharmacy that's open now and take me there.</q><span><b>Phone</b> · searches places, starts navigation</span></li>
+        <li class="agent"><q>Find a ramen place in Madrid that's open now and rated 4.5 or higher, then check if it has a vegetarian broth.</q><span><b>Phone and agent</b> · a place search, three web searches and the menu page, in 27 seconds</span></li>
         <li><q>Text Ana that I'm running 20 minutes late.</q><span><b>Phone</b> · reads it back, sends on your yes</span></li>
         <li><q>What did the group chat say?</q><span><b>Phone</b> · reads your notifications aloud</span></li>
         <li><q>Put on something calm and set a timer for pasta.</q><span><b>Phone</b> · music and a 10 minute timer</span></li>

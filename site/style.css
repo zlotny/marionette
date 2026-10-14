@@ -96,23 +96,8 @@ h1 b, h2 b { font-weight: 400; color: var(--color-accent-deep); }
   background: linear-gradient(150deg, var(--color-device), var(--color-paper-3));
   box-shadow: 0 90px 120px -50px var(--color-shadow-deep), 0 30px 60px -30px var(--color-shadow), inset 0 0 0 var(--rule-hair) var(--color-device-edge);
 }
-.device__screen {
-  height: 100%; border-radius: var(--radius-screen); overflow: hidden;
-  background: linear-gradient(180deg, var(--color-paper), var(--color-paper-2));
-  padding: var(--space-xl) var(--space-md); display: flex; flex-direction: column; gap: var(--space-xs);
-  font-size: var(--text-sm); line-height: 1.45;
-}
-.bubble { align-self: flex-end; max-width: 86%; background: var(--color-device); padding: var(--space-xs) var(--space-sm); border-radius: 18px 18px 6px 18px; box-shadow: 0 6px 16px -10px var(--color-shadow-deep); }
-.trace { font: 400 var(--text-xs)/1.5 var(--font-outlier); color: var(--color-accent-deep); padding-left: var(--space-3xs); }
-.reply { padding: 0 var(--space-3xs); }
-.listening { margin-top: auto; align-self: center; display: flex; gap: 5px; align-items: center; height: 40px; }
-.listening i { width: 4px; border-radius: 2px; background: var(--color-accent); animation: level 1.4s var(--ease-in-out) infinite alternate; }
-.listening i:nth-child(1) { height: 10px; animation-delay: -.2s; }
-.listening i:nth-child(2) { height: 22px; animation-delay: -.6s; }
-.listening i:nth-child(3) { height: 34px; animation-delay: -1s; }
-.listening i:nth-child(4) { height: 22px; animation-delay: -.4s; }
-.listening i:nth-child(5) { height: 10px; animation-delay: -.8s; }
-@keyframes level { to { transform: scaleY(0.4); } }
+.device__screen { display: block; height: 100%; border-radius: var(--radius-screen); overflow: hidden; background: var(--color-paper); }
+.device__screen img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
 
 .hero > .page { width: 100%; }
 .hero__copy { position: relative; z-index: 2; max-width: 760px; }
@@ -256,6 +241,6 @@ h1 b, h2 b { font-weight: 400; color: var(--color-accent-deep); }
   .node { padding: var(--space-md); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .strand, .strand::after, .wire::after, .listening i { animation: none; }
+  .strand, .strand::after, .wire::after { animation: none; }
   .enter { animation: enter 150ms linear forwards; transform: none; }
 }
