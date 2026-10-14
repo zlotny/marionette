@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --color-paper:        oklch(97.5% 0.010 78);
   --color-paper-2:      oklch(95% 0.016 74);
   --color-paper-3:      oklch(91.5% 0.022 72);
@@ -62,37 +63,37 @@
   --radius-screen: 42px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-paper:        oklch(13% 0.004 260);
-    --color-paper-2:      oklch(16% 0.005 260);
-    --color-paper-3:      oklch(21% 0.006 260);
-    --color-paper-veil:   oklch(13% 0.004 260 / 0.75);
-    --color-ink:          oklch(92% 0.020 85);
-    --color-ink-2:        oklch(76% 0.030 80);
-    --color-muted:        oklch(60% 0.030 80);
-    --color-rule:         oklch(30% 0.010 260);
-    --color-rule-2:       oklch(23% 0.008 260);
-    --color-accent:       oklch(80% 0.160 75);
-    --color-accent-deep:  oklch(82% 0.160 75);
-    --color-accent-soft:  oklch(48% 0.100 72);
-    --color-accent-glow:  oklch(96% 0.080 85);
-    --color-accent-halo:  oklch(80% 0.160 75 / 0.55);
-    --color-accent-ink:   oklch(13% 0.004 260);
-    --color-focus:        oklch(85% 0.170 80);
-    --color-peach:        oklch(16.5% 0.012 60);
-    --color-sage:         oklch(16.5% 0.012 150);
-    --color-lavender:     oklch(16.5% 0.014 290);
-    --color-shadow:       oklch(5% 0.004 260 / 0.60);
-    --color-shadow-deep:  oklch(3% 0.004 260 / 0.75);
-    --color-device:       oklch(18% 0.005 260);
-    --color-device-edge:  oklch(32% 0.010 260);
-    --color-scanline:     oklch(5% 0.004 260 / 0.35);
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper:        oklch(13% 0.004 260);
+  --color-paper-2:      oklch(16% 0.005 260);
+  --color-paper-3:      oklch(21% 0.006 260);
+  --color-paper-veil:   oklch(13% 0.004 260 / 0.75);
+  --color-ink:          oklch(92% 0.020 85);
+  --color-ink-2:        oklch(76% 0.030 80);
+  --color-muted:        oklch(60% 0.030 80);
+  --color-rule:         oklch(30% 0.010 260);
+  --color-rule-2:       oklch(23% 0.008 260);
+  --color-accent:       oklch(80% 0.160 75);
+  --color-accent-deep:  oklch(82% 0.160 75);
+  --color-accent-soft:  oklch(48% 0.100 72);
+  --color-accent-glow:  oklch(96% 0.080 85);
+  --color-accent-halo:  oklch(80% 0.160 75 / 0.55);
+  --color-accent-ink:   oklch(13% 0.004 260);
+  --color-focus:        oklch(85% 0.170 80);
+  --color-peach:        oklch(16.5% 0.012 60);
+  --color-sage:         oklch(16.5% 0.012 150);
+  --color-lavender:     oklch(16.5% 0.014 290);
+  --color-shadow:       oklch(5% 0.004 260 / 0.60);
+  --color-shadow-deep:  oklch(3% 0.004 260 / 0.75);
+  --color-device:       oklch(18% 0.005 260);
+  --color-device-edge:  oklch(32% 0.010 260);
+  --color-scanline:     oklch(4% 0.004 260 / 0.22);
+  --color-text-glow:    oklch(80% 0.160 75 / 0.32);
 
-    --font-display: "Geist Mono", ui-monospace, monospace;
-    --text-display: clamp(2.5rem, 5vw, 4.25rem);
-    --text-3xl: clamp(2rem, 3.8vw, 3.1rem);
-    --radius-pill: 3px;
-    --radius-node: 6px;
-  }
+  --font-display: "Geist Mono", ui-monospace, monospace;
+  --text-display: clamp(2.5rem, 5vw, 4.25rem);
+  --text-3xl: clamp(2rem, 3.8vw, 3.1rem);
+  --radius-pill: 3px;
+  --radius-node: 6px;
 }
