@@ -2,9 +2,13 @@ package dev.marionette.ui.settings
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Headset
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -18,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.marionette.BuildConfig
 import dev.marionette.MarionetteApp
 import dev.marionette.R
 import dev.marionette.ui.agentName
@@ -37,7 +42,7 @@ import dev.marionette.voice.wake.WakeSensitivity
 import kotlin.math.roundToInt
 
 @Composable
-fun WakeScreen(onBack: () -> Unit, onOpenSensitivity: () -> Unit) {
+fun WakeScreen(onBack: () -> Unit, onOpenSensitivity: () -> Unit, onOpenVoiceTest: () -> Unit) {
     val context = LocalContext.current
     val settings by MarionetteApp.graph.settings.settings.collectAsStateWithLifecycle()
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
@@ -70,6 +75,21 @@ fun WakeScreen(onBack: () -> Unit, onOpenSensitivity: () -> Unit) {
                 }
             }
         }
+        if (micGranted && BuildConfig.DEBUG) {
+            item {
+                SettingsGroup(null) {
+                    item { i, n ->
+                        SettingsRow(
+                            i, n,
+                            headline = stringResource(R.string.voice_test_title),
+                            supporting = stringResource(R.string.voice_test_entry_body),
+                            leading = { SettingsIcon(Icons.Rounded.GraphicEq) },
+                            onClick = onOpenVoiceTest,
+                        )
+                    }
+                }
+            }
+        }
         if (micGranted) {
             item {
                 WakeEnrollment(
@@ -87,7 +107,6 @@ fun WakeScreen(onBack: () -> Unit, onOpenSensitivity: () -> Unit) {
                         supporting = stringResource(
                             R.string.wake_sensitivity_summary,
                             (WakeSensitivity.fromThreshold(settings.wakeThreshold) * 100).roundToInt(),
-                            "%.1f×".format(settings.micBoost),
                         ),
                         leading = { SettingsIcon(Icons.Rounded.Tune) },
                         onClick = onOpenSensitivity,
@@ -101,6 +120,44 @@ fun WakeScreen(onBack: () -> Unit, onOpenSensitivity: () -> Unit) {
                         checked = settings.headsetTrigger,
                         leading = { SettingsIcon(Icons.Rounded.Headset) },
                         onCheckedChange = { on -> updateSettings { it.copy(headsetTrigger = on) } },
+                    )
+                }
+                item { i, n ->
+                    SwitchRow(
+                        i, n,
+                        headline = stringResource(R.string.wake_notification_talk),
+                        supporting = stringResource(R.string.wake_notification_talk_body, agentName()),
+                        checked = settings.notificationTalk,
+                        leading = { SettingsIcon(Icons.Rounded.Notifications) },
+                        onCheckedChange = { on -> updateSettings { it.copy(notificationTalk = on) } },
+                    )
+                }
+                item { i, n ->
+                    val assistant = access.isGranted(Access.ASSISTANT)
+                    SwitchRow(
+                        i, n,
+                        headline = stringResource(R.string.wake_overlay),
+                        supporting = if (assistant) {
+                            stringResource(R.string.wake_overlay_body, agentName())
+                        } else {
+                            stringResource(R.string.wake_overlay_needs_assistant, stringResource(R.string.app_name))
+                        },
+                        checked = settings.wakeOverlay && assistant,
+                        enabled = assistant,
+                        leading = { SettingsIcon(Icons.Rounded.Wallpaper) },
+                        onCheckedChange = { on -> updateSettings { it.copy(wakeOverlay = on) } },
+                    )
+                }
+                item { i, n ->
+                    val enabled = access.isGranted(Access.ASSISTANT) && settings.wakeOverlay
+                    SwitchRow(
+                        i, n,
+                        headline = stringResource(R.string.wake_screen_on),
+                        supporting = stringResource(R.string.wake_screen_on_body),
+                        checked = settings.wakeScreenOn && enabled,
+                        enabled = enabled,
+                        leading = { SettingsIcon(Icons.Rounded.LightMode) },
+                        onCheckedChange = { on -> updateSettings { it.copy(wakeScreenOn = on) } },
                     )
                 }
                 item { i, n ->

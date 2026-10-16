@@ -1,13 +1,19 @@
 package dev.marionette.assist
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import android.service.voice.VoiceInteractionSession
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
@@ -29,17 +35,35 @@ import dev.marionette.MarionetteApp
 import dev.marionette.core.Logger
 import dev.marionette.launch.Launcher
 import dev.marionette.launch.UnlockTrampolineActivity
+import dev.marionette.screen.MarionetteAccessibilityService
 import dev.marionette.ui.MainActivity
 import dev.marionette.ui.assist.AssistOverlay
 import dev.marionette.ui.theme.MarionetteTheme
 import dev.marionette.voice.TriggerSource
+import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoiceService
+import dev.marionette.voice.idle
 
 class AssistantSession(context: Context) : VoiceInteractionSession(context), LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
     private val registry = LifecycleRegistry(this)
     private val savedState = SavedStateRegistryController.create(this)
     private var sinceTurnId by mutableLongStateOf(0L)
     private var showCount by mutableLongStateOf(0L)
+    private val power = context.getSystemService(PowerManager::class.java)
+    private var screenWatched = false
+    private var screenWasOn = false
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_ON -> {
+                    screenWasOn = true
+                    turnScreenOn(false)
+                }
+                Intent.ACTION_SCREEN_OFF -> onScreenOff()
+            }
+        }
+    }
 
     override val lifecycle: Lifecycle get() = registry
     override val savedStateRegistry: SavedStateRegistry get() = savedState.savedStateRegistry
@@ -64,7 +88,7 @@ class AssistantSession(context: Context) : VoiceInteractionSession(context), Lif
         setContent {
             MarionetteTheme {
                 key(showCount) {
-                    AssistOverlay(sinceTurnId = sinceTurnId, onTalk = ::talk, onDismiss = ::hide)
+                    AssistOverlay(sinceTurnId = sinceTurnId, onCancel = ::cancel, onDismiss = ::hide)
                 }
             }
         }
@@ -84,24 +108,86 @@ class AssistantSession(context: Context) : VoiceInteractionSession(context), Lif
             hide()
             return
         }
+        val attach = args?.getBoolean(EXTRA_ATTACH) == true
+        turnScreenOn(args?.getBoolean(EXTRA_SCREEN_ON) == true && !power.isInteractive)
         sinceTurnId = graph.conversation.turns.value.lastOrNull()?.id ?: 0L
         showCount++
         registry.currentState = Lifecycle.State.RESUMED
-        talk()
+        shown = this
+        watchScreen(true)
+        if (!attach) talk()
     }
 
     override fun onHide() {
+        if (shown === this) shown = null
+        val screenTurnedOff = screenWasOn && !power.isInteractive
+        watchScreen(false)
+        if (screenTurnedOff && busy() && !MarionetteAccessibilityService.lockedRecently) cancelTurn()
         if (registry.currentState.isAtLeast(Lifecycle.State.STARTED)) registry.currentState = Lifecycle.State.CREATED
         super.onHide()
     }
 
     override fun onDestroy() {
+        if (shown === this) shown = null
+        watchScreen(false)
         registry.currentState = Lifecycle.State.DESTROYED
         viewModelStore.clear()
         super.onDestroy()
     }
 
+    private fun watchScreen(on: Boolean) {
+        if (on == screenWatched) return
+        screenWatched = on
+        if (on) {
+            screenWasOn = power.isInteractive
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            }
+            ContextCompat.registerReceiver(context, screenReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        } else {
+            runCatching { context.unregisterReceiver(screenReceiver) }
+        }
+    }
+
+    private fun onScreenOff() {
+        val wasOn = screenWasOn
+        screenWasOn = false
+        if (!wasOn || MarionetteAccessibilityService.lockedRecently) return
+        Logger.i("Screen turned off while the overlay showed")
+        if (busy()) cancel() else hide()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun turnScreenOn(on: Boolean) {
+        val flag = WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        window?.window?.apply { if (on) addFlags(flag) else clearFlags(flag) }
+    }
+
+    private fun busy(): Boolean = !VoiceBus.status.value.phase.idle || MarionetteApp.graph.confirmations.pending.value != null
+
+    private fun cancel() {
+        cancelTurn()
+        hide()
+    }
+
+    private fun cancelTurn() = VoiceService.send(context, VoiceService.ACTION_CANCEL)
+
     private fun talk() = VoiceService.send(context, VoiceService.ACTION_TALK, TriggerSource.ASSIST)
 
     private fun hasMic() = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    companion object {
+        const val EXTRA_ATTACH = "dev.marionette.ATTACH"
+        const val EXTRA_SCREEN_ON = "dev.marionette.SCREEN_ON"
+
+        @Volatile
+        private var shown: AssistantSession? = null
+
+        fun hideShown(): Boolean {
+            val session = shown ?: return false
+            Handler(Looper.getMainLooper()).post { session.hide() }
+            return true
+        }
+    }
 }

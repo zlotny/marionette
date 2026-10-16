@@ -30,7 +30,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -46,6 +45,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.R
 import dev.marionette.access.Access
@@ -57,9 +57,9 @@ import dev.marionette.ui.components.SettingsIcon
 import dev.marionette.ui.components.SettingsNote
 import dev.marionette.ui.components.SettingsRow
 import dev.marionette.ui.components.SettingsScaffold
-import dev.marionette.ui.voice.ENROLL_MINIMUM
-import dev.marionette.ui.voice.ENROLL_TARGET
-import dev.marionette.ui.voice.Recording
+import dev.marionette.ui.voice.ENROLL_STEP_TARGET
+import dev.marionette.ui.voice.GuidedEnrollmentContent
+import dev.marionette.ui.voice.rememberGuidedEnrollment
 import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoicePhase
 import dev.marionette.voice.VoiceService
@@ -142,30 +142,15 @@ fun StopPhrasesScreen(onBack: () -> Unit) {
 private fun StopEnrollment(draft: StopDraft, onLabel: (String) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
-    val enrolling = voice.phase == VoicePhase.ENROLLING
-    var started by remember { mutableStateOf(false) }
-    var saving by remember { mutableStateOf(false) }
-    LaunchedEffect(enrolling) {
-        if (enrolling) started = true else if (started) onClose()
-    }
-    DisposableEffect(Unit) {
-        onDispose { if (VoiceBus.status.value.phase == VoicePhase.ENROLLING) VoiceService.send(context, VoiceService.ACTION_ENROLL_CANCEL) }
-    }
+    val guided = rememberGuidedEnrollment(
+        start = { append -> VoiceService.enrollStopPhrase(context, draft.id, draft.label.trim(), append) },
+        onDone = onClose,
+    )
 
     Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (enrolling || saving) {
-                Recording(
-                    phrase = draft.label,
-                    count = voice.enrolledPhrases,
-                    minimum = if (draft.append) 1 else ENROLL_MINIMUM,
-                    saving = saving,
-                    onFinish = {
-                        saving = true
-                        VoiceService.send(context, VoiceService.ACTION_ENROLL_FINISH)
-                    },
-                    onCancel = { VoiceService.send(context, VoiceService.ACTION_ENROLL_CANCEL) },
-                )
+            if (voice.phase == VoicePhase.ENROLLING || guided.saving || guided.active) {
+                GuidedEnrollmentContent(guided, draft.label)
                 return@Column
             }
             OutlinedTextField(
@@ -179,7 +164,7 @@ private fun StopEnrollment(draft: StopDraft, onLabel: (String) -> Unit, onClose:
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                stringResource(R.string.wake_record_body, ENROLL_TARGET),
+                stringResource(R.string.wake_record_body, ENROLL_STEP_TARGET),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -187,7 +172,7 @@ private fun StopEnrollment(draft: StopDraft, onLabel: (String) -> Unit, onClose:
                 TextButton(onClick = onClose) { Text(stringResource(R.string.action_cancel)) }
                 Spacer(Modifier.size(8.dp))
                 Button(
-                    onClick = { VoiceService.enrollStopPhrase(context, draft.id, draft.label.trim(), draft.append) },
+                    onClick = { guided.begin(append = draft.append) },
                     enabled = draft.label.isNotBlank(),
                     modifier = Modifier.height(48.dp),
                 ) {
@@ -205,9 +190,9 @@ private fun StopTest(lastStopAt: Long) {
     val context = LocalContext.current
     val since = remember { mutableLongStateOf(System.currentTimeMillis()) }
     var heard by remember { mutableStateOf(false) }
-    DisposableEffect(Unit) {
+    LifecycleStartEffect(Unit) {
         VoiceService.send(context, VoiceService.ACTION_STOP_TEST_START)
-        onDispose { VoiceService.send(context, VoiceService.ACTION_STOP_TEST_STOP) }
+        onStopOrDispose { VoiceService.send(context, VoiceService.ACTION_STOP_TEST_STOP) }
     }
     LaunchedEffect(lastStopAt) {
         if (lastStopAt > since.longValue) {

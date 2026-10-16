@@ -47,6 +47,10 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val wakeThreshold = floatPreferencesKey("wake_threshold")
         val wakePhrase = stringPreferencesKey("wake_phrase")
         val headsetTrigger = booleanPreferencesKey("headset_trigger")
+        val listeningPaused = booleanPreferencesKey("listening_paused")
+        val notificationTalk = booleanPreferencesKey("notification_talk")
+        val wakeOverlay = booleanPreferencesKey("wake_overlay")
+        val wakeScreenOn = booleanPreferencesKey("wake_screen_on")
         val sttEngine = stringPreferencesKey("stt_engine")
         val legacySttApiKey = stringPreferencesKey("stt_api_key_sealed")
         val sttCloud = stringPreferencesKey("stt_cloud")
@@ -60,7 +64,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val ttsCloudVoice = stringPreferencesKey("tts_cloud_voice")
         val speechRate = floatPreferencesKey("speech_rate")
         val silenceMillis = intPreferencesKey("silence_millis")
-        val micBoost = floatPreferencesKey("mic_boost")
+        val levelVoice = booleanPreferencesKey("level_voice")
         val followUpSeconds = intPreferencesKey("follow_up_seconds")
         val holdPhrases = stringPreferencesKey("hold_phrases")
         val earcons = booleanPreferencesKey("earcons")
@@ -109,6 +113,10 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             wakeThreshold = p[Keys.wakeThreshold] ?: defaults.wakeThreshold,
             wakePhrase = p[Keys.wakePhrase] ?: defaults.wakePhrase,
             headsetTrigger = p[Keys.headsetTrigger] ?: defaults.headsetTrigger,
+            listeningPaused = p[Keys.listeningPaused] ?: defaults.listeningPaused,
+            notificationTalk = p[Keys.notificationTalk] ?: defaults.notificationTalk,
+            wakeOverlay = p[Keys.wakeOverlay] ?: defaults.wakeOverlay,
+            wakeScreenOn = p[Keys.wakeScreenOn] ?: defaults.wakeScreenOn,
             sttEngine = p[Keys.sttEngine]?.let { if (it == "OPENAI_CLOUD") SttEngine.CLOUD else runCatching { SttEngine.valueOf(it) }.getOrNull() } ?: defaults.sttEngine,
             sttCloud = p[Keys.sttCloud]?.let { runCatching { SttCloud.valueOf(it) }.getOrNull() } ?: defaults.sttCloud,
             sttModel = p[Keys.sttModel] ?: defaults.sttModel,
@@ -121,7 +129,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             ttsCloudVoice = p[Keys.ttsCloudVoice] ?: defaults.ttsCloudVoice,
             speechRate = p[Keys.speechRate] ?: defaults.speechRate,
             silenceMillis = p[Keys.silenceMillis] ?: defaults.silenceMillis,
-            micBoost = p[Keys.micBoost] ?: defaults.micBoost,
+            levelVoice = p[Keys.levelVoice] ?: defaults.levelVoice,
             followUpSeconds = p[Keys.followUpSeconds] ?: defaults.followUpSeconds,
             holdPhrases = p[Keys.holdPhrases]?.split('\n')?.filter { it.isNotBlank() },
             earcons = p[Keys.earcons] ?: defaults.earcons,
@@ -175,6 +183,10 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.wakeThreshold] = s.wakeThreshold
         p[Keys.wakePhrase] = s.wakePhrase
         p[Keys.headsetTrigger] = s.headsetTrigger
+        p[Keys.listeningPaused] = s.listeningPaused
+        p[Keys.notificationTalk] = s.notificationTalk
+        p[Keys.wakeOverlay] = s.wakeOverlay
+        p[Keys.wakeScreenOn] = s.wakeScreenOn
         p[Keys.sttEngine] = s.sttEngine.name
         p[Keys.sttCloud] = s.sttCloud.name
         p[Keys.sttModel] = s.sttModel
@@ -187,7 +199,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.ttsCloudVoice] = s.ttsCloudVoice
         p[Keys.speechRate] = s.speechRate
         p[Keys.silenceMillis] = s.silenceMillis
-        p[Keys.micBoost] = s.micBoost
+        p[Keys.levelVoice] = s.levelVoice
         p[Keys.followUpSeconds] = s.followUpSeconds
         s.holdPhrases?.let { p[Keys.holdPhrases] = it.joinToString("\n") } ?: p.remove(Keys.holdPhrases)
         p[Keys.earcons] = s.earcons

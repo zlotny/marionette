@@ -14,7 +14,9 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
+import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -28,6 +30,8 @@ import dev.marionette.agent.ConfirmationRequest
 import dev.marionette.agent.Turn
 import dev.marionette.agent.TurnSource
 import dev.marionette.agent.TurnStatus
+import dev.marionette.assist.AssistantSession
+import dev.marionette.assist.MarionetteVoiceInteractionService
 import dev.marionette.core.Http
 import dev.marionette.core.Logger
 import dev.marionette.settings.Credential
@@ -83,8 +87,11 @@ class VoiceService : LifecycleService() {
     private val micDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val detectorLock = Mutex()
     private val speech = Mutex()
+    private val micDemand = Channel<Unit>(Channel.CONFLATED)
+    private val leveler = VoiceLeveler()
 
     @Volatile private var mode = Mode.WAKE
+    @Volatile private var turnEndedAt = 0L
     @Volatile private var detector: AcousticWakeDetector? = null
     private var pendingWake: Job? = null
     @Volatile private var commandSink: CommandSink? = null
@@ -100,6 +107,7 @@ class VoiceService : LifecycleService() {
     private var enrollStop: Pair<String, String>? = null
     private var lastHoldPhrase: String? = null
     private var enrollCounter: UtteranceCounter? = null
+    private var enrollMutedUntil = 0L
 
     private class CommandSink(
         val session: SttSession,
@@ -119,6 +127,12 @@ class VoiceService : LifecycleService() {
             VoiceBus.status.map { it.phase }.distinctUntilChanged().collect { updateNotification() }
         }
         lifecycleScope.launch {
+            graph.settings.settings.map { it.listeningPaused to it.notificationTalk }.distinctUntilChanged().collect {
+                micDemand.trySend(Unit)
+                updateNotification()
+            }
+        }
+        lifecycleScope.launch {
             graph.settings.settings.map { Triple(it.language, it.sttEngine, it.sttCloud) }.distinctUntilChanged().collect { checkSpeechLanguage() }
         }
     }
@@ -135,6 +149,8 @@ class VoiceService : LifecycleService() {
                 return START_NOT_STICKY
             }
             ACTION_TALK -> trigger(TriggerSource.entries[intent.getIntExtra(EXTRA_SOURCE, TriggerSource.BUTTON.ordinal)])
+            ACTION_PAUSE -> if (SystemClock.elapsedRealtime() - turnEndedAt < PAUSE_GRACE_MILLIS) Logger.i("Pause ignored right after a turn") else setPaused(true)
+            ACTION_RESUME -> setPaused(false)
             ACTION_READ_ALOUD -> intent.getStringExtra(EXTRA_TEXT)?.takeIf { it.isNotBlank() }?.let {
                 trigger(TriggerSource.BUTTON, readAloud = it, followUp = intent.getBooleanExtra(EXTRA_FOLLOW_UP, false))
             }
@@ -154,6 +170,7 @@ class VoiceService : LifecycleService() {
             ACTION_ENROLL_CLEAR -> clearEnrollment()
         }
         ensureCapture()
+        micDemand.trySend(Unit)
         return START_STICKY
     }
 
@@ -191,15 +208,34 @@ class VoiceService : LifecycleService() {
         }
         captureJob = lifecycleScope.launch(micDispatcher) {
             reloadDetectorNow()
-            VoiceBus.update { it.copy(phase = if (mode == Mode.ENROLL) VoicePhase.ENROLLING else VoicePhase.WAITING, lastError = null) }
+            VoiceBus.update { it.copy(lastError = null) }
             while (isActive) {
                 if (inCall()) {
                     delay(CALL_POLL_MILLIS)
                     continue
                 }
+                if (idlePaused()) {
+                    VoiceBus.level(0f)
+                    VoiceBus.update { it.copy(phase = VoicePhase.PAUSED) }
+                    Logger.i("Listening paused, microphone released")
+                    while (idlePaused()) micDemand.receive()
+                    continue
+                }
+                VoiceBus.update {
+                    val idle = it.phase == VoicePhase.OFF || it.phase == VoicePhase.PAUSED
+                    it.copy(phase = if (mode == Mode.ENROLL) VoicePhase.ENROLLING else if (idle) VoicePhase.WAITING else it.phase)
+                }
                 if (!capture()) break
             }
         }
+    }
+
+    private fun idlePaused(): Boolean =
+        graph.settings.current.listeningPaused && mode == Mode.WAKE && commandJob?.isActive != true && wakeTests == 0 && stopTests == 0
+
+    private fun setPaused(paused: Boolean) {
+        Logger.i("Listening ${if (paused) "paused" else "resumed"} from the notification")
+        lifecycleScope.launch { graph.settings.update { it.copy(listeningPaused = paused) } }
     }
 
     private fun reloadDetector() {
@@ -238,6 +274,8 @@ class VoiceService : LifecycleService() {
         }
         val pcm = ShortArray(AudioSpec.CHUNK_SAMPLES)
         val samples = FloatArray(AudioSpec.CHUNK_SAMPLES)
+        val leveledPcm = ShortArray(AudioSpec.CHUNK_SAMPLES)
+        val leveled = FloatArray(AudioSpec.CHUNK_SAMPLES)
         var lastLevelPublish = 0L
         var lastCallCheck = 0L
         val echo = if (AcousticEchoCanceler.isAvailable()) runCatching { AcousticEchoCanceler.create(record.audioSessionId) }.getOrNull() else null
@@ -249,16 +287,20 @@ class VoiceService : LifecycleService() {
             while (kotlin.coroutines.coroutineContext.isActive) {
                 val n = record.read(pcm, 0, pcm.size)
                 if (n <= 0) continue
-                if (BuildConfig.DEBUG) injected.poll()?.let { it.copyInto(pcm, 0, 0, minOf(it.size, n)) }
-                val gain = graph.settings.current.micBoost
+                if (idlePaused()) return true
+                if (BuildConfig.DEBUG) {
+                    injected.poll()?.let { it.copyInto(pcm, 0, 0, minOf(it.size, n)) }
+                    tap?.invoke(pcm, n)
+                }
                 var sum = 0.0
                 for (i in 0 until n) {
-                    if (gain != 1f) pcm[i] = (pcm[i] * gain).coerceIn(Short.MIN_VALUE.toFloat(), Short.MAX_VALUE.toFloat()).toInt().toShort()
                     val s = pcm[i] / 32768f
                     samples[i] = s
                     sum += s * s
                 }
                 val chunk = if (n == samples.size) samples else samples.copyOf(n)
+                val leveling = mode == Mode.COMMAND && graph.settings.current.levelVoice
+                if (mode == Mode.WAKE || mode == Mode.COMMAND) leveler.process(chunk, n, if (leveling) leveled else null)
                 val now = System.currentTimeMillis()
                 if (now - lastCallCheck > CALL_POLL_MILLIS) {
                     lastCallCheck = now
@@ -287,7 +329,14 @@ class VoiceService : LifecycleService() {
                         }
                     }
                     Mode.COMMAND -> {
-                        commandSink?.let { feedCommand(it, pcm, n, chunk) }
+                        commandSink?.let { sink ->
+                            if (leveling) {
+                                for (i in 0 until n) leveledPcm[i] = (leveled[i] * 32768f).coerceIn(-32768f, 32767f).toInt().toShort()
+                                feedCommand(sink, leveledPcm, n, if (n == leveled.size) leveled else leveled.copyOf(n))
+                            } else {
+                                feedCommand(sink, pcm, n, chunk)
+                            }
+                        }
                         if (detector?.accept(chunk, graph.settings.current.wakeThreshold, listenForStop = true)?.stop == true) onStopPhrase(now, working = true)
                     }
                     Mode.ENROLL -> feedEnrollment(pcm, n, chunk)
@@ -320,7 +369,10 @@ class VoiceService : LifecycleService() {
         Logger.i("Stop phrase detected, working=$working")
         VoiceBus.update { it.copy(lastStopAt = now) }
         pendingWake?.cancel()
-        if (working) cancelCommand()
+        if (working) {
+            cancelCommand()
+            AssistantSession.hideShown()
+        }
         lifecycleScope.launch { playEarcon(if (working) Earcon.ERROR else Earcon.DONE) }
     }
 
@@ -366,9 +418,23 @@ class VoiceService : LifecycleService() {
             previous?.cancelAndJoin()
             runCommand(source, readAloud, followUp)
         }
+        micDemand.trySend(Unit)
+        val settings = graph.settings.current
+        if (settings.listeningPaused) lifecycleScope.launch { graph.settings.update { it.copy(listeningPaused = false) } }
+        if (settings.wakeOverlay && source in OVERLAY_SOURCES) showOverlay(screenOn = source == TriggerSource.WAKE_WORD && settings.wakeScreenOn)
+    }
+
+    private fun showOverlay(screenOn: Boolean) {
+        val service = MarionetteVoiceInteractionService.instance ?: return
+        val args = Bundle().apply {
+            putBoolean(AssistantSession.EXTRA_ATTACH, true)
+            putBoolean(AssistantSession.EXTRA_SCREEN_ON, screenOn)
+        }
+        runCatching { service.showSession(args, 0) }.onFailure { Logger.w("Overlay showSession failed", it) }
     }
 
     private fun cancelCommand() {
+        Logger.i("Turn cancelled")
         commandJob?.cancel()
         graph.agent.cancel()
         speaker.stop()
@@ -422,9 +488,11 @@ class VoiceService : LifecycleService() {
             speak(spoken(R.string.voice_error_spoken))
         } finally {
             mode = Mode.WAKE
+            turnEndedAt = SystemClock.elapsedRealtime()
             commandSink?.session?.cancel()
             commandSink = null
             VoiceBus.update { it.copy(phase = if (running) VoicePhase.WAITING else VoicePhase.OFF, partial = "") }
+            micDemand.trySend(Unit)
             withContext(NonCancellable) { graph.playback.release() }
             releaseWakeLock()
         }
@@ -602,10 +670,11 @@ class VoiceService : LifecycleService() {
         enrollSamples = 0
         enrollCounter = UtteranceCounter(AudioSpec.SAMPLE_RATE)
         mode = Mode.ENROLL
-        VoiceBus.update { it.copy(phase = VoicePhase.ENROLLING, enrolledPhrases = 0) }
+        VoiceBus.update { it.copy(phase = VoicePhase.ENROLLING, enrolledPhrases = 0, enrollRejected = false) }
     }
 
     private fun feedEnrollment(pcm: ShortArray, n: Int, chunk: FloatArray) {
+        if (SystemClock.elapsedRealtime() < enrollMutedUntil) return
         val copy = minOf(n, enrollBuffer.size - enrollSamples)
         if (copy > 0) {
             pcm.copyInto(enrollBuffer, enrollSamples, 0, copy)
@@ -613,7 +682,10 @@ class VoiceService : LifecycleService() {
         }
         if (enrollCounter?.accept(chunk) == true) {
             VoiceBus.update { it.copy(enrolledPhrases = it.enrolledPhrases + 1) }
-            if (graph.settings.current.earcons) lifecycleScope.launch { runCatching { Earcons.play(Earcon.DONE) } }
+            if (graph.settings.current.earcons) {
+                enrollMutedUntil = SystemClock.elapsedRealtime() + EARCON_MUTE_MILLIS
+                lifecycleScope.launch { runCatching { Earcons.play(Earcon.DONE) } }
+            }
         }
         if (enrollSamples >= enrollBuffer.size) lifecycleScope.launch { finishEnrollment(save = true) }
     }
@@ -640,6 +712,7 @@ class VoiceService : LifecycleService() {
                         }
                     }
                 }
+                if (built.isEmpty()) VoiceBus.update { it.copy(enrollRejected = true) }
                 Logger.i("Enrollment built ${built.size} templates")
             }
             withContext(Dispatchers.IO) { reloadDetectorNow() }
@@ -676,20 +749,16 @@ class VoiceService : LifecycleService() {
             this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        val talk = PendingIntent.getService(
-            this, 1, intent(this, ACTION_TALK).putExtra(EXTRA_SOURCE, TriggerSource.NOTIFICATION.ordinal),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val stop = PendingIntent.getService(this, 2, intent(this, ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         val text = when (status.phase) {
             VoicePhase.LISTENING -> getString(R.string.notification_listening)
             VoicePhase.TRANSCRIBING, VoicePhase.THINKING -> getString(R.string.notification_thinking)
             VoicePhase.SPEAKING -> getString(R.string.notification_speaking)
             VoicePhase.ENROLLING -> getString(R.string.notification_enrolling)
+            VoicePhase.PAUSED -> getString(R.string.notification_paused)
             else -> if (status.wakeArmed) getString(R.string.notification_waiting_wake) else getString(R.string.notification_waiting)
         }
-        return NotificationCompat.Builder(this, MarionetteApp.CHANNEL_LISTENER)
-            .setSmallIcon(R.drawable.ic_notification)
+        val builder = NotificationCompat.Builder(this, MarionetteApp.CHANNEL_LISTENER)
+            .setSmallIcon(if (status.phase == VoicePhase.PAUSED) R.drawable.ic_notification_paused else R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setContentIntent(open)
@@ -697,15 +766,30 @@ class VoiceService : LifecycleService() {
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .addAction(0, getString(R.string.action_talk), talk)
-            .addAction(0, getString(R.string.action_stop), stop)
-            .build()
+        when (status.phase) {
+            VoicePhase.LISTENING, VoicePhase.TRANSCRIBING, VoicePhase.THINKING, VoicePhase.SPEAKING ->
+                builder.addAction(0, getString(R.string.action_cancel), serviceIntent(5, ACTION_CANCEL))
+            VoicePhase.PAUSED -> builder.addAction(0, getString(R.string.action_listen), serviceIntent(4, ACTION_RESUME))
+            VoicePhase.ENROLLING -> Unit
+            else -> builder.addAction(0, getString(R.string.action_pause), serviceIntent(3, ACTION_PAUSE))
+        }
+        if (graph.settings.current.notificationTalk) {
+            val talk = intent(this, ACTION_TALK).putExtra(EXTRA_SOURCE, TriggerSource.NOTIFICATION.ordinal)
+            builder.addAction(0, getString(R.string.action_talk), PendingIntent.getService(this, 1, talk, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        }
+        builder.addAction(0, getString(R.string.action_turn_off), serviceIntent(2, ACTION_STOP))
+        return builder.build()
     }
+
+    private fun serviceIntent(code: Int, action: String): PendingIntent =
+        PendingIntent.getService(this, code, intent(this, action), PendingIntent.FLAG_IMMUTABLE)
 
     companion object {
         const val ACTION_START = "dev.marionette.voice.START"
         const val ACTION_STOP = "dev.marionette.voice.STOP"
         const val ACTION_TALK = "dev.marionette.voice.TALK"
+        const val ACTION_PAUSE = "dev.marionette.voice.PAUSE"
+        const val ACTION_RESUME = "dev.marionette.voice.RESUME"
         const val ACTION_READ_ALOUD = "dev.marionette.voice.READ_ALOUD"
         const val EXTRA_TEXT = "text"
         const val EXTRA_FOLLOW_UP = "follow_up"
@@ -727,6 +811,7 @@ class VoiceService : LifecycleService() {
 
         private const val NOTIFICATION_ID = 7
         private const val MAX_ENROLL_SECONDS = 90
+        private const val EARCON_MUTE_MILLIS = 700L
         private const val NO_SPEECH_MILLIS = 6_000L
         private const val HOLD_MILLIS = 2_000L
         private const val PULSE_MILLIS = 1_600L
@@ -738,6 +823,8 @@ class VoiceService : LifecycleService() {
         private const val SPECULATE_MILLIS = 320L
         private const val CALL_POLL_MILLIS = 1_000L
         private const val STOP_GRACE_MILLIS = 1_200L
+        private const val PAUSE_GRACE_MILLIS = 1_000L
+        private val OVERLAY_SOURCES = setOf(TriggerSource.WAKE_WORD, TriggerSource.HEADSET, TriggerSource.NOTIFICATION)
         private val CALL_MODES = setOf(AudioManager.MODE_RINGTONE, AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_CALL_SCREENING)
 
         @Volatile
@@ -750,6 +837,9 @@ class VoiceService : LifecycleService() {
         @Volatile
         private var stopTests = 0
         private val injected = ConcurrentLinkedQueue<ShortArray>()
+
+        @Volatile
+        var tap: ((ShortArray, Int) -> Unit)? = null
 
         fun inject(pcm: ShortArray) {
             if (!BuildConfig.DEBUG) return

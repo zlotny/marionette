@@ -30,7 +30,7 @@ class UtteranceCounter(private val rate: Int) {
     }
 
     private companion object {
-        const val MIN_RMS = 0.005f
+        const val MIN_RMS = 0.002f
         const val GAP_SECONDS = 0.35f
         const val MIN_SECONDS = 0.3f
         const val MAX_SECONDS = 3f

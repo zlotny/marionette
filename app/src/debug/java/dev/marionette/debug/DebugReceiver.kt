@@ -9,7 +9,9 @@ import dev.marionette.agent.TurnSource
 import dev.marionette.core.Logger
 import dev.marionette.llm.Provider
 import dev.marionette.settings.Credential
+import dev.marionette.voice.AudioSpec
 import dev.marionette.voice.VoiceService
+import dev.marionette.voice.stt.OpenAiSpeechToText
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -61,6 +63,20 @@ class DebugReceiver : BroadcastReceiver() {
                 Logger.i("DEBUG_AUDIO: ${pcm.size} samples from ${file.name}")
                 VoiceService.inject(pcm)
             }
+            ACTION_CAPTURE -> {
+                val name = intent.getStringExtra("name") ?: "capture-${System.currentTimeMillis()}"
+                val samples = intent.getIntExtra("seconds", 30) * AudioSpec.SAMPLE_RATE
+                val out = ByteBuffer.allocate(samples * 2).order(ByteOrder.LITTLE_ENDIAN)
+                Logger.w("DEBUG_CAPTURE: start $name")
+                VoiceService.tap = { pcm, n ->
+                    for (i in 0 until minOf(n, out.remaining() / 2)) out.putShort(pcm[i])
+                    if (!out.hasRemaining()) {
+                        VoiceService.tap = null
+                        File(context.getExternalFilesDir(null), "$name.wav").writeBytes(OpenAiSpeechToText.wav(out.array()))
+                        Logger.w("DEBUG_CAPTURE: saved $name")
+                    }
+                }
+            }
             ACTION_ENROLL_STOP -> {
                 val label = intent.getStringExtra("label") ?: return
                 VoiceService.enrollStopPhrase(context, intent.getStringExtra("id") ?: System.currentTimeMillis().toString(), label, append = false)
@@ -81,6 +97,7 @@ class DebugReceiver : BroadcastReceiver() {
         const val ACTION_AUDIO = "dev.marionette.DEBUG_AUDIO"
         const val WAV_HEADER = 44
         const val ACTION_CONFIRM = "dev.marionette.DEBUG_CONFIRM"
+        const val ACTION_CAPTURE = "dev.marionette.DEBUG_CAPTURE"
         const val ACTION_ENROLL_STOP = "dev.marionette.DEBUG_ENROLL_STOP"
         const val ACTION_ENROLL_FINISH = "dev.marionette.DEBUG_ENROLL_FINISH"
     }

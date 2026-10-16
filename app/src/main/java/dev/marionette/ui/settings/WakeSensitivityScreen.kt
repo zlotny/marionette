@@ -20,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -35,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.MarionetteApp
 import dev.marionette.R
@@ -57,12 +57,11 @@ fun WakeSensitivityScreen(onBack: () -> Unit) {
     val settings by MarionetteApp.graph.settings.settings.collectAsStateWithLifecycle()
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
     var sensitivity by remember { mutableFloatStateOf(WakeSensitivity.fromThreshold(settings.wakeThreshold)) }
-    var boost by remember { mutableFloatStateOf(settings.micBoost) }
     var testing by remember { mutableStateOf(false) }
 
-    DisposableEffect(testing) {
+    LifecycleStartEffect(testing) {
         if (testing) VoiceService.send(context, VoiceService.ACTION_WAKE_TEST_START)
-        onDispose { if (testing) VoiceService.send(context, VoiceService.ACTION_WAKE_TEST_STOP) }
+        onStopOrDispose { if (testing) VoiceService.send(context, VoiceService.ACTION_WAKE_TEST_STOP) }
     }
 
     SettingsScaffold(title = stringResource(R.string.wake_sensitivity), onBack = onBack) {
@@ -98,28 +97,10 @@ fun WakeSensitivityScreen(onBack: () -> Unit) {
                         },
                     )
                 }
-                item { i, n -> MicBoostRow(i, n, boost) { boost = it } }
             }
         }
         if (!voice.wakeArmed) item { SettingsNote(stringResource(R.string.wake_test_unavailable)) }
     }
-}
-
-@Composable
-fun MicBoostRow(index: Int, count: Int, boost: Float, onBoost: (Float) -> Unit) {
-    SliderRow(
-        index, count,
-        headline = stringResource(R.string.voice_mic_boost),
-        supporting = stringResource(R.string.voice_mic_boost_body),
-        valueLabel = "%.1f×".format(boost),
-        value = boost,
-        valueRange = 1f..4f,
-        steps = 5,
-        onValueChange = { value ->
-            onBoost(value)
-            updateSettings { it.copy(micBoost = value) }
-        },
-    )
 }
 
 @Composable

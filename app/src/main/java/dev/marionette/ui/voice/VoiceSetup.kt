@@ -58,6 +58,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.R
 import dev.marionette.ui.agentName
@@ -74,7 +75,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 const val ENROLL_TARGET = 5
-const val ENROLL_MINIMUM = 3
 
 @Composable
 fun rememberSpeaker(): Speaker {
@@ -124,25 +124,13 @@ fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modi
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var phrase by rememberSaveable { mutableStateOf(savedPhrase) }
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
     val enrolling = voice.phase == VoicePhase.ENROLLING
-    var appending by rememberSaveable { mutableStateOf(false) }
-    var saving by remember { mutableStateOf(false) }
-    val record: (Boolean) -> Unit = { append ->
-        appending = append
-        VoiceService.enroll(context, append)
-    }
-    LaunchedEffect(voice.phase) {
-        if (voice.phase != VoicePhase.ENROLLING) saving = false
-    }
-    DisposableEffect(Unit) {
-        onDispose { if (VoiceBus.status.value.phase == VoicePhase.ENROLLING) VoiceService.send(context, VoiceService.ACTION_ENROLL_CANCEL) }
-    }
+    val guided = rememberGuidedEnrollment(start = { append -> VoiceService.enroll(context, append) })
 
     Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -155,13 +143,13 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                 label = { Text(stringResource(R.string.wake_phrase)) },
                 placeholder = { Text(stringResource(R.string.wake_phrase_hint, agentName())) },
                 singleLine = true,
-                enabled = !enrolling,
+                enabled = !enrolling && !guided.active,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 modifier = Modifier.fillMaxWidth(),
             )
             AnimatedContent(
                 targetState = when {
-                    enrolling || saving -> EnrollStage.RECORDING
+                    enrolling || guided.saving || guided.active -> EnrollStage.RECORDING
                     voice.templateCount > 0 -> EnrollStage.READY
                     else -> EnrollStage.IDLE
                 },
@@ -170,13 +158,20 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
             ) { stage ->
                 when (stage) {
                     EnrollStage.IDLE -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (voice.enrollRejected) {
+                            Text(
+                                stringResource(R.string.wake_record_rejected),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                         Text(
-                            stringResource(R.string.wake_record_body, ENROLL_TARGET),
+                            stringResource(R.string.wake_record_body, ENROLL_STEP_TARGET),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Button(
-                            onClick = { record(false) },
+                            onClick = { guided.begin(append = false) },
                             enabled = phrase.isNotBlank(),
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                         ) {
@@ -185,23 +180,13 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                             Text(stringResource(R.string.wake_record))
                         }
                     }
-                    EnrollStage.RECORDING -> Recording(
-                        phrase = phrase,
-                        count = voice.enrolledPhrases,
-                        minimum = if (appending) 1 else ENROLL_MINIMUM,
-                        saving = saving,
-                        onFinish = {
-                            saving = true
-                            VoiceService.send(context, VoiceService.ACTION_ENROLL_FINISH)
-                        },
-                        onCancel = { VoiceService.send(context, VoiceService.ACTION_ENROLL_CANCEL) },
-                    )
+                    EnrollStage.RECORDING -> GuidedEnrollmentContent(guided, phrase)
                     EnrollStage.READY -> WakeTest(
                         lastWakeAt = voice.lastWakeAt,
                         armed = voice.wakeArmed,
                         templates = voice.templateCount,
-                        onAddMore = { record(true) },
-                        onRecordAgain = { record(false) },
+                        onAddMore = { VoiceService.enroll(context, true) },
+                        onRecordAgain = { guided.begin(append = false) },
                     )
                 }
             }
@@ -213,7 +198,15 @@ private enum class EnrollStage { IDLE, RECORDING, READY }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun Recording(phrase: String, count: Int, minimum: Int, saving: Boolean, onFinish: () -> Unit, onCancel: () -> Unit) {
+internal fun Recording(
+    phrase: String,
+    count: Int,
+    minimum: Int,
+    saving: Boolean,
+    onFinish: () -> Unit,
+    onCancel: () -> Unit,
+    target: Int = ENROLL_TARGET,
+) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (saving) {
             LoadingIndicator(Modifier.size(64.dp))
@@ -227,10 +220,10 @@ internal fun Recording(phrase: String, count: Int, minimum: Int, saving: Boolean
             textAlign = TextAlign.Center,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            repeat(ENROLL_TARGET) { i -> ProgressDot(done = i < count) }
+            repeat(target) { i -> ProgressDot(done = i < count) }
         }
         Text(
-            if (count < ENROLL_TARGET) stringResource(R.string.wake_count, count, ENROLL_TARGET) else stringResource(R.string.wake_count_extra, count),
+            if (count < target) stringResource(R.string.wake_count, count, target) else stringResource(R.string.wake_count_extra, count),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -239,7 +232,7 @@ internal fun Recording(phrase: String, count: Int, minimum: Int, saving: Boolean
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onCancel) { Text(stringResource(R.string.action_cancel)) }
             Spacer(Modifier.size(8.dp))
-            if (count >= ENROLL_TARGET) {
+            if (count >= target) {
                 Button(onClick = onFinish) { Text(stringResource(R.string.wake_finish)) }
             } else {
                 FilledTonalButton(onClick = onFinish, enabled = count >= minimum) { Text(stringResource(R.string.wake_finish)) }
@@ -263,9 +256,9 @@ private fun WakeTest(lastWakeAt: Long, armed: Boolean, templates: Int, onAddMore
     val context = LocalContext.current
     val since = remember { mutableLongStateOf(System.currentTimeMillis()) }
     var heard by remember { mutableStateOf(false) }
-    DisposableEffect(Unit) {
+    LifecycleStartEffect(Unit) {
         VoiceService.send(context, VoiceService.ACTION_WAKE_TEST_START)
-        onDispose { VoiceService.send(context, VoiceService.ACTION_WAKE_TEST_STOP) }
+        onStopOrDispose { VoiceService.send(context, VoiceService.ACTION_WAKE_TEST_STOP) }
     }
     LaunchedEffect(lastWakeAt) {
         if (lastWakeAt > since.longValue) {

@@ -13,7 +13,7 @@ class AcousticWakeDetector(
     stopTemplates: List<List<FloatArray>> = emptyList(),
 ) {
 
-    private class Track(val template: List<FloatArray>) {
+    private class Track(val template: List<FloatArray>, val limit: Float = Float.POSITIVE_INFINITY) {
         var previous = FloatArray(template.size) { Float.POSITIVE_INFINITY }
         var beforePrevious = FloatArray(template.size) { Float.POSITIVE_INFINITY }
 
@@ -34,8 +34,9 @@ class AcousticWakeDetector(
         }
     }
 
-    private val wakeTracks = wakeTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map(::Track)
-    private val stopTracks = stopTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map(::Track)
+    private val noise = NoiseProbe.embeddings(embedder)
+    private val wakeTracks = wakeTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map { Track(it, noiseLimit(it, noise)) }
+    private val stopTracks = stopTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map { Track(it, noiseLimit(it, noise)) }
     private val pending = FloatArray(HOP_SAMPLES * 4)
     private var pendingCount = 0
     private val melInput = FloatArray(MEL_CONTEXT_SAMPLES + HOP_SAMPLES)
@@ -43,6 +44,7 @@ class AcousticWakeDetector(
     private var framesSinceWake = Int.MAX_VALUE / 2
     private var framesSinceStop = Int.MAX_VALUE / 2
     private var quietHops = Int.MAX_VALUE / 2
+    private val gate = SilenceGate(HOP_SAMPLES.toFloat() / AudioSpec.SAMPLE_RATE)
 
     val wakeArmed: Boolean get() = wakeTracks.isNotEmpty()
 
@@ -77,7 +79,7 @@ class AcousticWakeDetector(
         melInput.copyInto(melInput, 0, HOP_SAMPLES, HOP_SAMPLES + MEL_CONTEXT_SAMPLES)
         mel.takeLast(HOP_SAMPLES / 160).forEach { melFrames.addLast(it) }
         while (melFrames.size > SpeechEmbedder.WINDOW) melFrames.removeFirst()
-        quietHops = if (SilenceGate.isQuiet(pending, HOP_SAMPLES)) quietHops + 1 else 0
+        quietHops = if (gate.isQuiet(pending, HOP_SAMPLES)) quietHops + 1 else 0
         framesSinceWake++
         framesSinceStop++
         if (melFrames.size < SpeechEmbedder.WINDOW) return null
@@ -90,10 +92,14 @@ class AcousticWakeDetector(
         val stopping = listenForStop && stopTracks.isNotEmpty()
         if (wakeTracks.isEmpty() && !stopping) return null
         val frame = embedder.embed(listOf(melFrames.toList())).first()
-        val wakeScore = wakeTracks.minOfOrNull { it.push(frame) } ?: Float.POSITIVE_INFINITY
-        val stopScore = if (stopping) stopTracks.minOf { it.push(frame) } else Float.POSITIVE_INFINITY
-        val stop = stopScore < threshold && framesSinceStop * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
-        val wake = !stop && wakeScore < threshold && framesSinceWake * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
+        val wakeScores = wakeTracks.map { it.push(frame) }
+        val stopScores = if (stopping) stopTracks.map { it.push(frame) } else emptyList()
+        val wakeScore = wakeScores.minOrNull() ?: Float.POSITIVE_INFINITY
+        val stopScore = stopScores.minOrNull() ?: Float.POSITIVE_INFINITY
+        val stopHit = stopScores.indices.any { stopScores[it] < minOf(threshold, stopTracks[it].limit) }
+        val wakeHit = wakeScores.indices.any { wakeScores[it] < minOf(threshold, wakeTracks[it].limit) }
+        val stop = stopHit && framesSinceStop * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
+        val wake = !stop && wakeHit && framesSinceWake * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
         if (stop) framesSinceStop = 0
         if (wake) framesSinceWake = 0
         return Detection(minOf(wakeScore, stopScore), wake, stop)
@@ -105,6 +111,12 @@ class AcousticWakeDetector(
         private const val MIN_TEMPLATE_FRAMES = 3
         private const val REFRACTORY_SECONDS = 1.5f
         private const val WINDOW_HOPS = SpeechEmbedder.WINDOW * 160 / HOP_SAMPLES + 1
+        private const val NOISE_MARGIN = 0.05f
+
+        fun noiseLimit(template: List<FloatArray>, noise: List<FloatArray>): Float {
+            val track = Track(template)
+            return noise.minOfOrNull { track.push(it) }?.minus(NOISE_MARGIN) ?: Float.POSITIVE_INFINITY
+        }
 
         private fun dot(a: FloatArray, b: FloatArray): Float {
             var s = 0f
@@ -115,11 +127,12 @@ class AcousticWakeDetector(
         fun buildTemplates(embedder: SpeechEmbedder, pcm: ShortArray): List<List<FloatArray>> {
             val samples = FloatArray(pcm.size) { pcm[it].toFloat() }
             val rate = AudioSpec.SAMPLE_RATE
+            val noise = NoiseProbe.embeddings(embedder)
             return EnergySegmenter.segments(samples, rate).map { (start, end) ->
                 val a = maxOf(0, ((start - 0.5f) * rate).toInt())
                 val b = minOf(samples.size, ((end + 0.2f) * rate).toInt())
                 embedder.embeddings(samples.copyOfRange(a, b))
-            }.filter { it.size >= MIN_TEMPLATE_FRAMES }
+            }.filter { it.size >= MIN_TEMPLATE_FRAMES && noiseLimit(it, noise) >= WakeSensitivity.MIN_THRESHOLD }
         }
 
         fun save(file: File, templates: List<List<FloatArray>>) {

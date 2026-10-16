@@ -6,7 +6,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class VoicePhase { OFF, WAITING, LISTENING, TRANSCRIBING, THINKING, SPEAKING, ENROLLING }
+enum class VoicePhase { OFF, PAUSED, WAITING, LISTENING, TRANSCRIBING, THINKING, SPEAKING, ENROLLING }
+
+val VoicePhase.idle: Boolean get() = this == VoicePhase.OFF || this == VoicePhase.PAUSED || this == VoicePhase.WAITING
 
 enum class TriggerSource { WAKE_WORD, HEADSET, ASSIST, BUTTON, NOTIFICATION }
 
@@ -16,6 +18,7 @@ data class VoiceStatus(
     val wakeArmed: Boolean = false,
     val templateCount: Int = 0,
     val enrolledPhrases: Int = 0,
+    val enrollRejected: Boolean = false,
     val inputDevice: String? = null,
     val lastError: String? = null,
     val speechLanguageMissing: Boolean = false,

@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -117,10 +118,18 @@ class MarionetteAccessibilityService : AccessibilityService() {
             return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
         }
 
+        @Volatile
+        private var lockedAt = 0L
+
+        val lockedRecently: Boolean get() = lockedAt > 0 && SystemClock.elapsedRealtime() - lockedAt < LOCK_GRACE_MILLIS
+
         fun lockScreen(): Boolean {
+            lockedAt = SystemClock.elapsedRealtime()
             val locked = instance?.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) == true
-            Logger.i("Lock screen after screen control: $locked")
+            Logger.i("Lock screen: $locked")
             return locked
         }
+
+        private const val LOCK_GRACE_MILLIS = 3_000L
     }
 }

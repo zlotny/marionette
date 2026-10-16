@@ -1,6 +1,7 @@
 package dev.marionette.tools
 
 import android.accessibilityservice.AccessibilityService
+import dev.marionette.assist.AssistantSession
 import dev.marionette.core.int
 import dev.marionette.core.string
 import dev.marionette.screen.MarionetteAccessibilityService
@@ -8,10 +9,12 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 
 private const val KEYGUARD_SETTLE_MILLIS = 800L
+private const val OVERLAY_SETTLE_MILLIS = 400L
 
 private suspend fun screenGuard(ctx: ToolContext): Pair<MarionetteAccessibilityService?, JsonObject?> {
     val service = MarionetteAccessibilityService.instance
         ?: return null to ToolResults.error("missing_permission", "Screen control is off. Ask the user to enable the Marionette accessibility service in Marionette settings.")
+    if (AssistantSession.hideShown()) delay(OVERLAY_SETTLE_MILLIS)
     val keyguardShowing = ctx.device.isKeyguardShowing
     if (ctx.device.isLocked || !ctx.launcher.dismissKeyguard()) return null to ToolResults.needsUnlock()
     if (keyguardShowing) {
@@ -90,8 +93,8 @@ class UiActTool : Tool {
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val action = args.string("action") ?: return ToolResults.error("bad_arguments", "action is required.")
         if (action == "lock") {
-            val service = MarionetteAccessibilityService.instance ?: return screenGuard(ctx).second!!
-            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+            if (MarionetteAccessibilityService.instance == null) return screenGuard(ctx).second!!
+            MarionetteAccessibilityService.lockScreen()
             return ToolResults.ok("status" to "locked")
         }
         val (service, error) = screenGuard(ctx)

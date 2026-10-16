@@ -312,7 +312,7 @@ private fun EmptyState(modifier: Modifier, voice: VoiceStatus, onSuggestion: (St
             VoiceOrb(
                 size = glow,
                 listening = true,
-                active = voice.phase != VoicePhase.OFF,
+                active = voice.phase != VoicePhase.OFF && voice.phase != VoicePhase.PAUSED,
                 modifier = Modifier.requiredSize(glow).alpha(AMBIENT_ALPHA),
             )
         }

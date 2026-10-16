@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.RecordVoiceOver
@@ -59,7 +60,6 @@ import kotlin.math.roundToInt
 @Composable
 fun RecognitionScreen(onBack: () -> Unit) {
     val settings by MarionetteApp.graph.settings.settings.collectAsStateWithLifecycle()
-    var boost by remember { mutableFloatStateOf(settings.micBoost) }
 
     SettingsScaffold(title = stringResource(R.string.voice_group_recognition), onBack = onBack) {
         item {
@@ -136,7 +136,20 @@ fun RecognitionScreen(onBack: () -> Unit) {
                         leading = { SettingsIcon(Icons.Rounded.Translate) },
                     )
                 }
-                item { i, n -> MicBoostRow(i, n, boost) { boost = it } }
+            }
+        }
+        item {
+            SettingsGroup(null) {
+                item { i, n ->
+                    SwitchRow(
+                        i, n,
+                        headline = stringResource(R.string.voice_level),
+                        supporting = stringResource(R.string.voice_level_body),
+                        checked = settings.levelVoice,
+                        leading = { SettingsIcon(Icons.Rounded.GraphicEq) },
+                        onCheckedChange = { on -> updateSettings { it.copy(levelVoice = on) } },
+                    )
+                }
             }
         }
     }

@@ -25,16 +25,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,8 +43,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.MarionetteApp
@@ -53,12 +53,14 @@ import dev.marionette.agent.TurnStatus
 import dev.marionette.ui.components.VoiceOrb
 import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoicePhase
+import dev.marionette.voice.idle
 import kotlinx.coroutines.delay
 
 private const val AUTO_HIDE_MILLIS = 5_000L
+private val CANCEL_RED = Color(0xFFD93025)
 
 @Composable
-fun AssistOverlay(sinceTurnId: Long, onTalk: () -> Unit, onDismiss: () -> Unit) {
+fun AssistOverlay(sinceTurnId: Long, onCancel: () -> Unit, onDismiss: () -> Unit) {
     val graph = MarionetteApp.graph
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
     val turns by graph.conversation.turns.collectAsStateWithLifecycle()
@@ -66,15 +68,21 @@ fun AssistOverlay(sinceTurnId: Long, onTalk: () -> Unit, onDismiss: () -> Unit) 
     val turn = turns.lastOrNull()?.takeIf { it.id > sinceTurnId }
     var engaged by remember { mutableStateOf(false) }
     val visible = remember { MutableTransitionState(false).apply { targetState = true } }
+    val busy = !voice.phase.idle || confirmation != null
+    val view = LocalView.current
 
     LaunchedEffect(voice.phase) {
-        if (voice.phase != VoicePhase.WAITING && voice.phase != VoicePhase.OFF) engaged = true
+        if (!voice.phase.idle) engaged = true
     }
-    LaunchedEffect(engaged, voice.phase, confirmation) {
-        if (engaged && confirmation == null && (voice.phase == VoicePhase.WAITING || voice.phase == VoicePhase.OFF)) {
+    LaunchedEffect(engaged, busy) {
+        if (engaged && !busy) {
             delay(AUTO_HIDE_MILLIS)
             onDismiss()
         }
+    }
+    DisposableEffect(busy) {
+        view.keepScreenOn = busy
+        onDispose { view.keepScreenOn = false }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -96,7 +104,7 @@ fun AssistOverlay(sinceTurnId: Long, onTalk: () -> Unit, onDismiss: () -> Unit) 
             ) {
                 Column(Modifier.padding(20.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        VoiceOrb(size = 56.dp, listening = true, active = voice.phase != VoicePhase.WAITING)
+                        VoiceOrb(size = 56.dp, listening = true, active = !voice.phase.idle)
                         Spacer(Modifier.size(16.dp))
                         TranscriptText(
                             statusText(voice.phase, voice.partial, turn?.input),
@@ -125,13 +133,14 @@ fun AssistOverlay(sinceTurnId: Long, onTalk: () -> Unit, onDismiss: () -> Unit) 
                             }
                         }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                        FilledTonalIconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, stringResource(R.string.home_cancel)) }
-                        Spacer(Modifier.size(8.dp))
-                        FilledIconButton(onClick = onTalk, enabled = voice.phase == VoicePhase.WAITING || voice.phase == VoicePhase.SPEAKING) {
-                            Icon(Icons.Rounded.Mic, stringResource(R.string.home_talk))
-                        }
-                    }
+                    FilledIconButton(
+                        onClick = onCancel,
+                        modifier = Modifier.align(Alignment.CenterHorizontally).size(64.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = CANCEL_RED,
+                            contentColor = Color.White,
+                        ),
+                    ) { Icon(Icons.Rounded.Close, stringResource(R.string.home_cancel), Modifier.size(32.dp)) }
                 }
             }
         }

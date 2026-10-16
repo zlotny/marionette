@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.SignalWifiOff
 import androidx.compose.material.icons.rounded.Translate
@@ -48,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import dev.marionette.MarionetteApp
 import dev.marionette.R
 import dev.marionette.health.BackendHealth
 import dev.marionette.settings.AppSettings
@@ -58,9 +60,10 @@ import dev.marionette.voice.VoiceService
 import dev.marionette.voice.VoiceStatus
 import dev.marionette.voice.stt.AndroidSpeechToText
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.net.URI
 
-enum class Issue { OFFLINE, UNREACHABLE, REJECTED, FAILING, VOICE_OFF, SPEECH_LANGUAGE, NO_WAKE }
+enum class Issue { OFFLINE, UNREACHABLE, REJECTED, FAILING, VOICE_OFF, PAUSED, SPEECH_LANGUAGE, NO_WAKE }
 
 private const val VOICE_SETTLE_MILLIS = 2_500L
 
@@ -85,6 +88,7 @@ fun rememberIssue(backend: BackendHealth, voice: VoiceStatus, settings: AppSetti
         settled == BackendHealth.Rejected -> Issue.REJECTED
         settled is BackendHealth.Failing -> Issue.FAILING
         voiceOff -> Issue.VOICE_OFF
+        voice.phase == VoicePhase.PAUSED -> Issue.PAUSED
         voice.speechLanguageMissing && !off -> Issue.SPEECH_LANGUAGE
         noWake -> Issue.NO_WAKE
         else -> null
@@ -100,11 +104,12 @@ private val Issue.presentation: IssuePresentation
         Issue.REJECTED -> IssuePresentation(Icons.Rounded.Key, R.string.health_auth_pill, R.string.health_auth_title)
         Issue.FAILING -> IssuePresentation(Icons.Rounded.Warning, R.string.health_error_pill, R.string.health_error_title)
         Issue.VOICE_OFF -> IssuePresentation(Icons.Rounded.MicOff, R.string.status_voice_off, R.string.health_voice_off_title)
+        Issue.PAUSED -> IssuePresentation(Icons.Rounded.PauseCircle, R.string.health_paused_pill, R.string.health_paused_title)
         Issue.SPEECH_LANGUAGE -> IssuePresentation(Icons.Rounded.Translate, R.string.health_language_pill, R.string.health_language_title)
         Issue.NO_WAKE -> IssuePresentation(Icons.Rounded.RecordVoiceOver, R.string.health_wake_pill, R.string.health_wake_title)
     }
 
-private val Issue.severe: Boolean get() = this != Issue.NO_WAKE
+private val Issue.severe: Boolean get() = this != Issue.NO_WAKE && this != Issue.PAUSED
 
 @Composable
 fun HealthPill(issue: Issue, onClick: () -> Unit) {
@@ -145,6 +150,7 @@ fun HealthSheet(
         Issue.REJECTED -> stringResource(R.string.health_auth_body, host)
         Issue.FAILING -> stringResource(R.string.health_error_body, host, (backend as? BackendHealth.Failing)?.message.orEmpty())
         Issue.VOICE_OFF -> stringResource(R.string.health_voice_off_body)
+        Issue.PAUSED -> stringResource(R.string.health_paused_body, name)
         Issue.SPEECH_LANGUAGE -> stringResource(R.string.health_language_body, Languages.displayName(settings.language.ifBlank { LocalConfiguration.current.locales[0].toLanguageTag() }))
         Issue.NO_WAKE -> stringResource(R.string.health_wake_body, name)
     }
@@ -171,6 +177,10 @@ fun HealthSheet(
                     val mic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                     onDismiss()
                     if (mic) VoiceService.send(context, VoiceService.ACTION_START) else onOpenPermissions()
+                }
+                Issue.PAUSED -> SheetButton(R.string.health_action_resume) {
+                    onDismiss()
+                    MarionetteApp.graph.scope.launch { MarionetteApp.graph.settings.update { it.copy(listeningPaused = false) } }
                 }
                 Issue.SPEECH_LANGUAGE -> SheetButton(R.string.health_action_download) {
                     AndroidSpeechToText.downloadLanguage(context, settings.language)

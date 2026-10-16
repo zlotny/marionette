@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import dev.marionette.assist.AssistantSession
 import dev.marionette.assist.MarionetteVoiceInteractionService
 import dev.marionette.core.Logger
 import kotlinx.coroutines.CompletableDeferred
@@ -67,6 +68,7 @@ class Launcher(private val context: Context, private val isKeyguardShowing: () -
     val hasPending: Boolean get() = pending != null
 
     private fun start(intent: Intent?, label: String, from: Context = context): LaunchStatus = runCatching {
+        if (intent != null) AssistantSession.hideShown()
         intent?.let(from::startActivity)
         Logger.i("Launched $label")
         LaunchStatus.STARTED
