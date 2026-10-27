@@ -12,8 +12,8 @@ android {
         applicationId = "dev.marionette"
         minSdk = 29
         targetSdk = 37
-        versionCode = 5
-        versionName = "1.1.0"
+        versionCode = 6
+        versionName = "1.2.0"
         ndk { abiFilters += "arm64-v8a" }
     }
 
@@ -34,6 +34,9 @@ android {
         }
         release {
             signingConfig = signingConfigs.findByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
@@ -49,6 +52,7 @@ android {
 
     androidResources {
         noCompress += "onnx"
+        generateLocaleConfig = true
     }
 
     testOptions {

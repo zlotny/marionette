@@ -4,20 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Marionette: a hands-free voice assistant for Android</title>
-<meta name="description" content="A free, open-source, hands-free voice assistant for Android. Say your own wake phrase and talk. It runs your phone, and hands everything else to your own AI agent or the AI model you choose.">
+<title>Marionette: the Android voice assistant that gets better with you</title>
+<meta name="description" content="A free, open-source, hands-free voice assistant for Android. It learns your voice, works with the agent you choose, and gets better as you train it. Not a fixed assistant.">
 <meta name="theme-color" content="#faf6f0">
 <link rel="canonical" href="https://marionette.ndrs.es/">
 <meta name="google-site-verification" content="xGcxIlyzYVDsrvQq4sVZuJMY3wICR12JwhaztjCRH0U">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Marionette">
-<meta property="og:title" content="Marionette: put your phone down, it keeps working">
-<meta property="og:description" content="A hands-free Android voice assistant that runs your phone and hands everything else to your own AI agent.">
+<meta property="og:title" content="Marionette: the voice assistant that gets better with you">
+<meta property="og:description" content="A hands-free Android voice assistant. Train it with your voice, bring your own agent, and shape it over time.">
 <meta property="og:url" content="https://marionette.ndrs.es/">
 <meta property="og:image" content="https://marionette.ndrs.es/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Marionette website: Put your phone down. It keeps working. Next to a phone showing a chat with the assistant.">
+<meta property="og:image:alt" content="Marionette website: Starts simple. Gets better with you. Next to a phone showing a chat with the assistant.">
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -50,11 +50,11 @@
     "@context": "https://schema.org",
     "@type": "MobileApplication",
     "name": "Marionette",
-    "description": "A free, open-source, hands-free voice assistant for Android. A custom wake phrase starts it, and your own AI agent or AI model operates the phone through app tools.",
+    "description": "A free, open-source, hands-free voice assistant for Android. A wake phrase trained with your own voice starts it, and the agent or language model you choose operates the phone through device tools.",
     "url": "https://marionette.ndrs.es/",
     "applicationCategory": "UtilitiesApplication",
     "operatingSystem": "Android 10 or newer",
-    "softwareVersion": "1.1.0",
+    "softwareVersion": "1.2.0",
     "downloadUrl": "https://github.com/zlotny/marionette/releases/latest/download/marionette.apk",
     "screenshot": "https://marionette.ndrs.es/img/app-light.webp",
     "image": "https://marionette.ndrs.es/og.jpg",
@@ -98,14 +98,14 @@
 
     <div class="page">
       <div class="hero__copy">
-        <h1><span class="line enter" style="--d: 60ms">Put your phone down.</span> <b class="line enter" style="--d: 150ms">It keeps working.</b></h1>
-        <p class="hero__lede enter" style="--d: 240ms">Marionette is a voice assistant for Android that really does things. Say your phrase and talk. It runs your phone, and hands everything else to your own AI agent.</p>
+        <h1><span class="line enter" style="--d: 60ms">Starts simple.</span> <b class="line enter" style="--d: 150ms">Gets better with you.</b></h1>
+        <p class="hero__lede enter" style="--d: 240ms">Marionette is a hands-free voice assistant for Android. It learns your voice, works with the agent you choose, and improves every time you correct it. Not a fixed assistant. Yours to shape.</p>
         <div class="hero__cta enter" style="--d: 320ms">
           <a class="btn btn-fill" href="https://github.com/zlotny/marionette/releases/latest/download/marionette.apk">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
             Download the APK
           </a>
-          <span class="hero__note">Free · v1.1 · 97 MB · Android 10+</span>
+          <span class="hero__note">Free · v1.2 · 44 MB · Android 10+</span>
         </div>
         <details class="why enter" style="--d: 390ms">
           <summary>Why an APK and not the Play Store?</summary>
@@ -118,8 +118,8 @@
   <section class="map" aria-labelledby="map-title">
     <div class="page">
       <div class="map__head">
-        <h2 id="map-title">Your voice, your phone, <b>your agent.</b></h2>
-        <p>Most assistants stop at the edge of the phone. Marionette has two hands. The phone does what a phone can do. Your agent does the rest, on your accounts, your home and your servers.</p>
+        <h2 id="map-title">Marionette is the hands. <b>Your agent is the brain.</b></h2>
+        <p>Bring the agent you like. Marionette gives it your voice and your phone. Your agent does the thinking, and it can keep learning: new skills, your habits, your preferences.</p>
       </div>
 
       <div class="diagram">
@@ -133,30 +133,30 @@
         <div class="node node--phone">
           <span class="where">on your phone</span>
           <h3>Marionette</h3>
-          <p>Runs real Android actions. Screen off, phone in your pocket.</p>
+          <p>Real Android actions. Screen off, phone in your pocket.</p>
           <ul>
-            <li>Navigation and places, with opening hours</li>
+            <li>Calendar, timers and alarms</li>
             <li>Messages and calls, confirmed first</li>
-            <li>Notifications: read, reply, dismiss</li>
-            <li>Music in any app</li>
-            <li>Calendar, timers, alarms, contacts</li>
+            <li>Navigation and places</li>
+            <li>Music and notifications</li>
+            <li>Photos, and screen control as a last resort</li>
           </ul>
         </div>
         <span class="wire wire--back" aria-hidden="true"></span>
         <div class="node node--agent">
           <span class="where">wherever it runs</span>
           <h3>Your agent</h3>
-          <p>Connect an <a class="textlink" href="https://github.com/openclaw/openclaw">OpenClaw</a> agent and give it your voice.</p>
+          <p>A self-hosted agent such as <a class="textlink" href="https://github.com/openclaw/openclaw">OpenClaw</a>, or a model from the provider you like.</p>
           <ul>
             <li>Research, with a short spoken answer</li>
-            <li>Email and documents</li>
-            <li>Lights, heating, doors</li>
-            <li>Servers and long tasks</li>
-            <li>Anything you teach it</li>
+            <li>Email, home and servers</li>
+            <li>New skills you add over time</li>
+            <li>Remembers what you prefer</li>
+            <li>Runs on your own server</li>
           </ul>
         </div>
       </div>
-      <p class="map__legend">The gold threads are the only way out. The wake phrase is detected on the phone, and nothing is sent until you speak to it.</p>
+      <p class="map__legend">The gold threads are the only way out. The wake phrase is detected on the phone, and nothing goes out until you speak to it.</p>
     </div>
   </section>
 
@@ -176,26 +176,25 @@
 
   <section class="yours" aria-labelledby="yours-title">
     <div class="page">
-      <h2 id="yours-title">Only what you allow. <b>Only what you ask for.</b></h2>
-      <p class="yours__lede">Everything is a switch you control. Give Marionette as little or as much as you like, and change your mind at any time.</p>
+      <h2 id="yours-title">Not a fixed assistant. <b>One that grows with you.</b></h2>
+      <p class="yours__lede">Most assistants ship as they are and stay that way. Marionette starts simple and improves with each small correction you make.</p>
       <div class="yours__grid">
         <div>
-          <h3>What the phone exposes</h3>
+          <h3>It learns your voice</h3>
           <ul>
-            <li>Turn off any tool. If calls are off, it can’t call.</li>
-            <li>Grant each permission on its own: contacts, calendar, notifications, location.</li>
-            <li>Choose what needs a spoken yes before it happens.</li>
-            <li>Screen control stays off until you turn it on, and you can block apps from it.</li>
-            <li>Choose what context it shares, like location or what’s playing.</li>
+            <li>Train your wake phrase with your own voice, close up and across the room.</li>
+            <li>A false wake? Mark it with one tap so it stops happening.</li>
+            <li>Read a short text in your normal voice. It learns what is not the wake phrase.</li>
+            <li>Review what woke it, and keep it sharp.</li>
           </ul>
         </div>
         <div>
-          <h3>What your agent does</h3>
+          <h3>Your agent learns too</h3>
           <ul>
-            <li>Your agent runs where you put it, with the tools you give it.</li>
-            <li>Connect your email, your home, your servers, or none of them.</li>
+            <li>Bring the agent you like, and change it whenever you want.</li>
+            <li>A self-hosted agent learns new skills and remembers your preferences, on your own server.</li>
             <li>Pick the model and how hard it thinks, per chat.</li>
-            <li>With a plain AI model, edit its instructions in plain words.</li>
+            <li>With a plain model, edit its instructions in plain words.</li>
           </ul>
         </div>
       </div>
@@ -206,16 +205,17 @@
     <div class="page">
       <h2 id="setup-title">A few minutes to set up. <b>Then just talk.</b></h2>
       <ol class="steps">
-        <li><span class="n">1</span><h3>Install the app</h3><p>From GitHub. No store, no account, no server to run.</p></li>
-        <li><span class="n">2</span><h3>Choose its brain</h3><p>Connect your OpenClaw agent, or paste a key for any AI model. The setup checks that it works before you leave.</p></li>
-        <li><span class="n">3</span><h3>Teach it your phrase</h3><p>Any words, any language. Say it a few times.</p></li>
+        <li><span class="n">1</span><h3>Install the app</h3><p>From GitHub. No store, no account, no Marionette server.</p></li>
+        <li><span class="n">2</span><h3>Bring your agent</h3><p>Connect your OpenClaw agent, or paste a key for the model you like. The setup checks that it works before you leave.</p></li>
+        <li><span class="n">3</span><h3>Teach it your voice</h3><p>Any words, any language. Say your phrase a few times. It gets better from there.</p></li>
       </ol>
 
       <div class="trust">
-        <h3>Yours, and only yours.</h3>
+        <h3>Open. Private. Yours.</h3>
         <div>
-          <p>Marionette talks directly to the model you choose. There is no middleman and no subscription. Your keys stay encrypted on your phone.</p>
-          <p>The code is public domain under the <a class="textlink" href="https://github.com/zlotny/marionette/blob/main/LICENSE">Unlicense</a>. Read it, fork it, ship it.</p>
+          <p>The wake phrase runs on your phone. Marionette talks directly to the agent you choose, with no middleman and no subscription. Your keys stay encrypted on your phone.</p>
+          <p>Every tool, permission and confirmation is a switch. Screen control stays off until you turn it on.</p>
+          <p>The code is public domain under the <a class="textlink" href="https://github.com/zlotny/marionette/blob/main/LICENSE">Unlicense</a>. Read it, fork it, change it.</p>
           <p class="providers">Works with OpenClaw, Anthropic, OpenAI, Google Gemini, OpenRouter, and any OpenAI-compatible API.</p>
         </div>
       </div>
@@ -226,7 +226,7 @@
 <footer class="close" id="download">
   <div class="strands" aria-hidden="true"></div>
   <div class="page">
-    <h2>Less screen.<br><b>More day.</b></h2>
+    <h2>Your assistant.<br><b>Your way.</b></h2>
     <div class="close__cta">
       <a class="btn btn-fill" href="https://github.com/zlotny/marionette/releases/latest/download/marionette.apk">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
@@ -235,7 +235,7 @@
       <a class="btn btn-line" href="https://github.com/zlotny/marionette">Source on GitHub</a>
     </div>
     <div class="close__foot">
-      <span>Marionette 1.1.0 · Public domain</span>
+      <span>Marionette 1.2.0 · Public domain</span>
       <nav class="close__links" aria-label="Project">
         <a class="textlink" href="https://github.com/zlotny/marionette/releases">Releases</a>
         <a class="textlink" href="https://github.com/zlotny/marionette">Source</a>

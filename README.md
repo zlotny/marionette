@@ -3,8 +3,8 @@
 <h1 align="center">Marionette</h1>
 
 <p align="center">
-  An open-source, hands-free voice assistant for Android.<br>
-  Say your own wake phrase and talk. It runs your phone, and hands everything else to your own AI agent.
+  <b>Starts simple. Gets better with you.</b><br>
+  A hands-free voice assistant for Android that learns your voice, works with the agent you choose, and improves every time you correct it.
 </p>
 
 <p align="center">
@@ -20,16 +20,28 @@
   </picture>
 </p>
 
-## Features
+Most assistants ship as they are and stay that way. Marionette is not a fixed assistant. It starts simple and evolves with you.
 
-- **Your own wake phrase.** Any words, any language. Detection runs on the phone. Stop phrases cancel a running turn.
-- **Hands-free.** It works with the screen off and the phone in your pocket. It speaks its progress while it works.
-- **Phone tools.** Navigation and places (with ratings and opening hours), messages and calls (confirmed first), notifications (read, reply, dismiss), music in any app, calendar, timers, alarms, contacts, apps, links, device settings, and screen control.
-- **Your agent or any model.** Connect an [OpenClaw](https://github.com/openclaw/openclaw) agent for email, home automation, servers and research. Or use a plain AI model with a key.
-- **You stay in control.** Each tool, permission and confirmation is a switch. Screen control is off by default.
-- **Per-chat model and thinking level.** The picker shows price and measured speed per model.
-- **Phone or cloud speech.** Android on-device recognition and voice by default. OpenAI or OpenRouter speech models are optional.
-- **English and Spanish** interface.
+## It learns your voice
+
+- **Your own wake phrase.** Any words, any language, trained with your voice, close up and across the room.
+- **One tap on a false wake.** Mark it, and it stops happening.
+- **It knows your normal voice.** Read a short text, and it learns what is not the wake phrase.
+- **Review what woke it.** Keep it sharp over time.
+
+## Your agent is the brain
+
+Marionette is the hands. Your agent is the brain.
+
+- **Bring the agent you like.** A self-hosted [OpenClaw](https://github.com/openclaw/openclaw) agent, or a model from OpenAI, Anthropic, Google Gemini or OpenRouter. Change it any time.
+- **It grows with you.** A self-hosted agent learns new skills and remembers your preferences, on your own server.
+- **Your phone, by voice.** Calendar, messages, calls, navigation, music, notifications, timers, photos, and screen control as a last resort. Screen off, phone in your pocket.
+
+## Open, private, yours
+
+- **Private by design.** The wake phrase runs on the phone. No account, no analytics, no subscription, no Marionette server.
+- **You stay in control.** Every tool, permission and confirmation is a switch. Screen control is off by default.
+- **Open source.** Public domain. Read it, fork it, change it.
 
 ## Things you can say
 
@@ -39,25 +51,17 @@
 - "Put on something calm and set a timer for pasta."
 - "Is the home server still up? Restart it if not." (with an agent)
 
-## Backends
-
-| Backend | You need |
-| --- | --- |
-| OpenClaw (recommended) | Gateway address and token or password. Optional device pairing for live progress. |
-| Anthropic, OpenAI, Google Gemini, OpenRouter | An API key. |
-| Any OpenAI-compatible API (Ollama, LM Studio, vLLM) | Base URL, and a key if the server needs one. The model must support tool calls. |
-
-The app talks to the backend directly. There is no Marionette server.
-
 ## Install
 
 1. Download [`marionette.apk`](https://github.com/zlotny/marionette/releases/latest/download/marionette.apk).
 2. Allow installs from your browser, then open the file.
-3. Follow the setup: backend, permissions, language, wake phrase.
+3. Follow the setup: agent, permissions, language, wake phrase.
 
-Requirements: Android 10 or newer, 64-bit ARM (arm64-v8a).
+Requirements: Android 10 or newer, 64-bit ARM (arm64-v8a). English and Spanish interface.
 
 Updates: add `https://github.com/zlotny/marionette` to [Obtainium](https://github.com/ImranR98/Obtainium), or download each new release.
+
+### Verify the APK
 
 Verify the APK signature with `apksigner verify --print-certs marionette.apk`. The SHA-256 certificate digest is:
 
@@ -69,7 +73,17 @@ BD:3E:13:37:C9:68:F6:72:81:87:78:55:23:88:1E:68:19:F0:0F:16:98:B2:A7:04:F8:22:BE
 
 Marionette sends text messages, sees your installed apps, operates other apps through accessibility, and uses location in the background. Google Play restricts all of these. The APK keeps them, and you choose which ones to switch on.
 
-## Privacy
+## Supported agents
+
+| Backend | You need |
+| --- | --- |
+| OpenClaw (recommended) | Gateway address and token or password. Optional device pairing for live progress. |
+| Anthropic, OpenAI, Google Gemini, OpenRouter | An API key. |
+| Any OpenAI-compatible API (Ollama, LM Studio, vLLM) | Base URL, and a key if the server needs one. The model must support tool calls. |
+
+The app talks to your agent directly. There is no Marionette server.
+
+## Privacy details
 
 - Wake phrase detection runs on the phone. No audio leaves the phone until you say the phrase, and none at all with on-device recognition.
 - Requests go from the phone to the backend you choose. No account, no analytics, no subscription.
