@@ -24,6 +24,10 @@ object Http {
         }
         .build()
 
+    val agent: OkHttpClient = client.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
+
+    val model: OkHttpClient = client.newBuilder().readTimeout(300, TimeUnit.SECONDS).build()
+
     fun warm(urls: List<String>) {
         urls.mapNotNull { it.toHttpUrlOrNull()?.resolve("/") }.distinctBy { it.host to it.port }.forEach { url ->
             client.newCall(Request.Builder().url(url).head().build()).enqueue(object : Callback {

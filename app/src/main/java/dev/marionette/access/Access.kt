@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import dev.marionette.notifications.MarionetteNotificationListener
 import dev.marionette.screen.MarionetteAccessibilityService
 import dev.marionette.settings.AppSettings
+import dev.marionette.tools.Photos
 
 enum class AccessKind { RUNTIME, SPECIAL, ROLE }
 
@@ -49,8 +50,8 @@ enum class Access(
     CONTACTS(
         AccessKind.RUNTIME,
         essential = false,
-        permissions = listOf(Manifest.permission.READ_CONTACTS),
-        tools = setOf("search_contacts"),
+        permissions = listOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS),
+        tools = setOf("search_contacts", "create_contact", "add_contact_info"),
     ),
     PHONE(
         AccessKind.RUNTIME,
@@ -61,14 +62,26 @@ enum class Access(
     SMS(
         AccessKind.RUNTIME,
         essential = false,
-        permissions = listOf(Manifest.permission.SEND_SMS),
-        tools = setOf("send_sms"),
+        permissions = listOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_SMS),
+        tools = setOf("send_sms", "read_sms"),
+    ),
+    CALL_LOG(
+        AccessKind.RUNTIME,
+        essential = false,
+        permissions = listOf(Manifest.permission.READ_CALL_LOG),
+        tools = setOf("recent_calls"),
     ),
     CALENDAR(
         AccessKind.RUNTIME,
         essential = false,
         permissions = listOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR),
-        tools = setOf("list_events", "create_event"),
+        tools = setOf("list_events", "create_event", "update_event", "delete_event", "list_calendars"),
+    ),
+    PHOTOS(
+        AccessKind.RUNTIME,
+        essential = false,
+        permissions = listOf(Photos.permission, Manifest.permission.ACCESS_MEDIA_LOCATION),
+        tools = setOf("list_photos", "share_photo"),
     ),
     NEARBY_DEVICES(
         AccessKind.RUNTIME,
@@ -92,13 +105,13 @@ enum class Access(
     ),
     DO_NOT_DISTURB(AccessKind.SPECIAL, essential = false, tools = setOf("device_setting")),
     SYSTEM_SETTINGS(AccessKind.SPECIAL, essential = false, tools = setOf("device_setting")),
-    SCREEN_CONTROL(AccessKind.SPECIAL, essential = false, tools = setOf("ui_read", "ui_act")),
+    SCREEN_CONTROL(AccessKind.SPECIAL, essential = false, tools = setOf("ui_read", "ui_act", "screen_capture")),
     ;
 
     fun isRelevant(context: Context, settings: AppSettings): Boolean {
         if (Build.VERSION.SDK_INT < minSdk) return false
         return when (this) {
-            PHONE, SMS -> context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
+            PHONE, SMS, CALL_LOG -> context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
             LOCAL_NETWORK -> LocalNetwork.isLocal(settings.baseUrl)
             else -> true
         }

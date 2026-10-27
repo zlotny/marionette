@@ -25,8 +25,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -51,12 +54,15 @@ import dev.marionette.MarionetteApp
 import dev.marionette.R
 import dev.marionette.agent.TurnStatus
 import dev.marionette.ui.components.VoiceOrb
+import dev.marionette.voice.TriggerSource
 import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoicePhase
+import dev.marionette.voice.VoiceService
 import dev.marionette.voice.idle
 import kotlinx.coroutines.delay
 
 private const val AUTO_HIDE_MILLIS = 5_000L
+private const val FALSE_WAKE_WINDOW_MILLIS = 15_000L
 private val CANCEL_RED = Color(0xFFD93025)
 
 @Composable
@@ -70,6 +76,11 @@ fun AssistOverlay(sinceTurnId: Long, onCancel: () -> Unit, onDismiss: () -> Unit
     val visible = remember { MutableTransitionState(false).apply { targetState = true } }
     val busy = !voice.phase.idle || confirmation != null
     val view = LocalView.current
+    val context = LocalContext.current
+    val fromWake = remember {
+        VoiceBus.status.value.let { it.lastTrigger == TriggerSource.WAKE_WORD && System.currentTimeMillis() - it.lastWakeAt < FALSE_WAKE_WINDOW_MILLIS }
+    }
+    var askFalse by remember { mutableStateOf(false) }
 
     LaunchedEffect(voice.phase) {
         if (!voice.phase.idle) engaged = true
@@ -133,14 +144,40 @@ fun AssistOverlay(sinceTurnId: Long, onCancel: () -> Unit, onDismiss: () -> Unit
                             }
                         }
                     }
-                    FilledIconButton(
-                        onClick = onCancel,
-                        modifier = Modifier.align(Alignment.CenterHorizontally).size(64.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = CANCEL_RED,
-                            contentColor = Color.White,
-                        ),
-                    ) { Icon(Icons.Rounded.Close, stringResource(R.string.home_cancel), Modifier.size(32.dp)) }
+                    if (askFalse) {
+                        Text(stringResource(R.string.overlay_false_wake_confirm), style = MaterialTheme.typography.bodyLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(onClick = { askFalse = false }, modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.confirm_no))
+                            }
+                            Spacer(Modifier.weight(0.6f))
+                            Button(
+                                onClick = {
+                                    VoiceService.markWake(context)
+                                    onCancel()
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) { Text(stringResource(R.string.confirm_yes)) }
+                        }
+                    } else {
+                        Box(Modifier.fillMaxWidth()) {
+                            if (fromWake) {
+                                FilledTonalButton(onClick = { askFalse = true }, modifier = Modifier.align(Alignment.CenterStart)) {
+                                    Icon(Icons.Rounded.Flag, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.size(8.dp))
+                                    Text(stringResource(R.string.overlay_false_wake))
+                                }
+                            }
+                            FilledIconButton(
+                                onClick = onCancel,
+                                modifier = Modifier.align(Alignment.Center).size(64.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = CANCEL_RED,
+                                    contentColor = Color.White,
+                                ),
+                            ) { Icon(Icons.Rounded.Close, stringResource(R.string.home_cancel), Modifier.size(32.dp)) }
+                        }
+                    }
                 }
             }
         }

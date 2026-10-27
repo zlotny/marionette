@@ -63,6 +63,7 @@ class DebugReceiver : BroadcastReceiver() {
                 Logger.i("DEBUG_AUDIO: ${pcm.size} samples from ${file.name}")
                 VoiceService.inject(pcm)
             }
+            ACTION_SAY -> intent.getStringExtra("text")?.let { VoiceService.readAloud(context, it, followUp = false) }
             ACTION_CAPTURE -> {
                 val name = intent.getStringExtra("name") ?: "capture-${System.currentTimeMillis()}"
                 val samples = intent.getIntExtra("seconds", 30) * AudioSpec.SAMPLE_RATE
@@ -98,6 +99,7 @@ class DebugReceiver : BroadcastReceiver() {
         const val WAV_HEADER = 44
         const val ACTION_CONFIRM = "dev.marionette.DEBUG_CONFIRM"
         const val ACTION_CAPTURE = "dev.marionette.DEBUG_CAPTURE"
+        const val ACTION_SAY = "dev.marionette.DEBUG_SAY"
         const val ACTION_ENROLL_STOP = "dev.marionette.DEBUG_ENROLL_STOP"
         const val ACTION_ENROLL_FINISH = "dev.marionette.DEBUG_ENROLL_FINISH"
     }

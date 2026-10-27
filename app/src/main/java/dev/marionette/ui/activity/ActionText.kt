@@ -22,7 +22,7 @@ object ActionText {
             "missing_permission" -> Outcome.PERMISSION
             "needs_unlock" -> Outcome.LOCKED
             "not_found", "unknown_place", "not_installed", "no_location", "gone", "unknown_id" -> Outcome.NOT_FOUND
-            "not_allowed", "blocked_app" -> Outcome.NOT_ALLOWED
+            "not_allowed", "blocked_app", "repeating_event" -> Outcome.NOT_ALLOWED
             "timeout" -> Outcome.TIMEOUT
             "launch_failed", "no_handler", "no_clock_app", "not_launchable", "no_calendar", "no_sms" -> Outcome.NO_APP
             else -> Outcome.FAILED

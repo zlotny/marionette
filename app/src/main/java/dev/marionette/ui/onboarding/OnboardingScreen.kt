@@ -57,6 +57,7 @@ import dev.marionette.ui.components.SettingsGroup
 import dev.marionette.ui.components.SettingsIcon
 import dev.marionette.ui.components.VoiceOrb
 import dev.marionette.ui.voice.VoiceTestButton
+import dev.marionette.ui.voice.SpeechEnrollment
 import dev.marionette.ui.voice.WakeEnrollment
 import dev.marionette.ui.voice.languageOptions
 import dev.marionette.voice.VoiceBus
@@ -183,6 +184,10 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
                             savedPhrase = settings.wakePhrase,
                             onPhrase = { phrase -> update { it.copy(wakePhrase = phrase) } },
                         )
+                        if (voice.templateCount > 0) {
+                            Spacer(Modifier.height(16.dp))
+                            SpeechEnrollment()
+                        }
                     }
                     OnboardingStep.DONE -> Hero(R.string.onboarding_done_title, R.string.onboarding_done_body)
                 }

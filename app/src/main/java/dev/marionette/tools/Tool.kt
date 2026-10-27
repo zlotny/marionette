@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Resources
 import dev.marionette.agent.DeviceSnapshotProvider
 import dev.marionette.core.jsonOf
+import dev.marionette.core.string
 import dev.marionette.launch.LaunchStatus
 import dev.marionette.launch.Launcher
 import dev.marionette.media.PlaybackHold
@@ -44,6 +45,8 @@ interface Tool {
 }
 
 object ToolResults {
+    const val IMAGE_JPEG = "image_jpeg"
+
     fun ok(vararg pairs: Pair<String, Any?>) = jsonOf("ok" to true, *pairs)
 
     fun error(code: String, message: String? = null) = jsonOf("ok" to false, "error" to code, "message" to message)
@@ -64,3 +67,7 @@ fun launchResult(status: LaunchStatus, what: String, vararg extra: Pair<String, 
 }
 
 fun JsonObject.isError(): Boolean = this["ok"]?.toString() == "false"
+
+fun JsonObject.imageJpeg(): String? = string(ToolResults.IMAGE_JPEG)
+
+fun JsonObject.withoutImage(): JsonObject = if (containsKey(ToolResults.IMAGE_JPEG)) JsonObject(this - ToolResults.IMAGE_JPEG) else this

@@ -129,7 +129,7 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
     val context = LocalContext.current
     var phrase by rememberSaveable { mutableStateOf(savedPhrase) }
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
-    val enrolling = voice.phase == VoicePhase.ENROLLING
+    val enrolling = voice.phase == VoicePhase.ENROLLING && !voice.enrollingSpeech
     val guided = rememberGuidedEnrollment(start = { append -> VoiceService.enroll(context, append) })
 
     Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.fillMaxWidth()) {

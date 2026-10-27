@@ -17,7 +17,7 @@ interface SpeechToText {
 
     fun isAvailable(): Boolean
 
-    suspend fun start(language: String, secondLanguage: String, onPartial: (String) -> Unit): SttSession
+    suspend fun start(language: String, extraLanguages: List<String>, onPartial: (String) -> Unit): SttSession
 }
 
 class SttException(message: String, val languageMissing: Boolean = false) : Exception(message)

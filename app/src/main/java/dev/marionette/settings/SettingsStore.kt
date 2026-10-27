@@ -48,6 +48,9 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val wakePhrase = stringPreferencesKey("wake_phrase")
         val headsetTrigger = booleanPreferencesKey("headset_trigger")
         val listeningPaused = booleanPreferencesKey("listening_paused")
+        val quietHours = booleanPreferencesKey("quiet_hours")
+        val quietStart = intPreferencesKey("quiet_start")
+        val quietEnd = intPreferencesKey("quiet_end")
         val notificationTalk = booleanPreferencesKey("notification_talk")
         val wakeOverlay = booleanPreferencesKey("wake_overlay")
         val wakeScreenOn = booleanPreferencesKey("wake_screen_on")
@@ -55,7 +58,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val legacySttApiKey = stringPreferencesKey("stt_api_key_sealed")
         val sttCloud = stringPreferencesKey("stt_cloud")
         val sttModel = stringPreferencesKey("stt_model")
-        val secondLanguage = stringPreferencesKey("second_language")
+        val extraLanguages = stringPreferencesKey("second_language")
         val language = stringPreferencesKey("language")
         val ttsVoice = stringPreferencesKey("tts_voice")
         val ttsEngine = stringPreferencesKey("tts_engine")
@@ -67,6 +70,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val levelVoice = booleanPreferencesKey("level_voice")
         val followUpSeconds = intPreferencesKey("follow_up_seconds")
         val holdPhrases = stringPreferencesKey("hold_phrases")
+        val holdSeconds = intPreferencesKey("hold_seconds")
         val earcons = booleanPreferencesKey("earcons")
         val relock = booleanPreferencesKey("relock_after_screen_control")
         val warmOnWake = booleanPreferencesKey("warm_on_wake")
@@ -114,13 +118,16 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             wakePhrase = p[Keys.wakePhrase] ?: defaults.wakePhrase,
             headsetTrigger = p[Keys.headsetTrigger] ?: defaults.headsetTrigger,
             listeningPaused = p[Keys.listeningPaused] ?: defaults.listeningPaused,
+            quietHours = p[Keys.quietHours] ?: defaults.quietHours,
+            quietStart = p[Keys.quietStart] ?: defaults.quietStart,
+            quietEnd = p[Keys.quietEnd] ?: defaults.quietEnd,
             notificationTalk = p[Keys.notificationTalk] ?: defaults.notificationTalk,
             wakeOverlay = p[Keys.wakeOverlay] ?: defaults.wakeOverlay,
             wakeScreenOn = p[Keys.wakeScreenOn] ?: defaults.wakeScreenOn,
             sttEngine = p[Keys.sttEngine]?.let { if (it == "OPENAI_CLOUD") SttEngine.CLOUD else runCatching { SttEngine.valueOf(it) }.getOrNull() } ?: defaults.sttEngine,
             sttCloud = p[Keys.sttCloud]?.let { runCatching { SttCloud.valueOf(it) }.getOrNull() } ?: defaults.sttCloud,
             sttModel = p[Keys.sttModel] ?: defaults.sttModel,
-            secondLanguage = p[Keys.secondLanguage] ?: defaults.secondLanguage,
+            extraLanguages = p[Keys.extraLanguages]?.split(',')?.filter { it.isNotBlank() } ?: defaults.extraLanguages,
             language = p[Keys.language] ?: defaults.language,
             ttsVoice = p[Keys.ttsVoice] ?: defaults.ttsVoice,
             ttsEngine = p[Keys.ttsEngine]?.let { runCatching { TtsEngine.valueOf(it) }.getOrNull() } ?: defaults.ttsEngine,
@@ -132,6 +139,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             levelVoice = p[Keys.levelVoice] ?: defaults.levelVoice,
             followUpSeconds = p[Keys.followUpSeconds] ?: defaults.followUpSeconds,
             holdPhrases = p[Keys.holdPhrases]?.split('\n')?.filter { it.isNotBlank() },
+            holdSeconds = p[Keys.holdSeconds] ?: defaults.holdSeconds,
             earcons = p[Keys.earcons] ?: defaults.earcons,
             warmOnWake = p[Keys.warmOnWake] ?: defaults.warmOnWake,
             contextFields = p[Keys.contextFields]?.mapNotNull { runCatching { ContextField.valueOf(it) }.getOrNull() }?.toSet()
@@ -184,13 +192,16 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.wakePhrase] = s.wakePhrase
         p[Keys.headsetTrigger] = s.headsetTrigger
         p[Keys.listeningPaused] = s.listeningPaused
+        p[Keys.quietHours] = s.quietHours
+        p[Keys.quietStart] = s.quietStart
+        p[Keys.quietEnd] = s.quietEnd
         p[Keys.notificationTalk] = s.notificationTalk
         p[Keys.wakeOverlay] = s.wakeOverlay
         p[Keys.wakeScreenOn] = s.wakeScreenOn
         p[Keys.sttEngine] = s.sttEngine.name
         p[Keys.sttCloud] = s.sttCloud.name
         p[Keys.sttModel] = s.sttModel
-        p[Keys.secondLanguage] = s.secondLanguage
+        p[Keys.extraLanguages] = s.extraLanguages.joinToString(",")
         p[Keys.language] = s.language
         p[Keys.ttsVoice] = s.ttsVoice
         p[Keys.ttsEngine] = s.ttsEngine.name
@@ -202,6 +213,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.levelVoice] = s.levelVoice
         p[Keys.followUpSeconds] = s.followUpSeconds
         s.holdPhrases?.let { p[Keys.holdPhrases] = it.joinToString("\n") } ?: p.remove(Keys.holdPhrases)
+        p[Keys.holdSeconds] = s.holdSeconds
         p[Keys.earcons] = s.earcons
         p[Keys.warmOnWake] = s.warmOnWake
         p[Keys.contextFields] = s.contextFields.map { it.name }.toSet()

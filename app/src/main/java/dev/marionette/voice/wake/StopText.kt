@@ -12,7 +12,7 @@ object StopText {
         return labels.any { label -> collapse(words(label).filter { it !in skip }).let { it.isNotEmpty() && it == heard } }
     }
 
-    private fun words(text: String): List<String> =
+    fun words(text: String): List<String> =
         Normalizer.normalize(text.lowercase(), Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
             .split(Regex("[^\\p{L}\\p{N}]+"))

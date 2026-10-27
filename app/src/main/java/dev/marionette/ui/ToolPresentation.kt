@@ -27,6 +27,17 @@ import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.AlarmOff
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.EditCalendar
+import androidx.compose.material.icons.rounded.EventBusy
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Screenshot
+import androidx.compose.material.icons.rounded.Sms
+import androidx.compose.material.icons.rounded.Snooze
+import androidx.compose.material.icons.rounded.TimerOff
 import androidx.compose.ui.graphics.vector.ImageVector
 import dev.marionette.R
 
@@ -66,6 +77,21 @@ object ToolPresentations {
         "notification_action" to ToolPresentation(Icons.Rounded.Notifications, R.string.tool_notification_action, R.string.tool_notification_action_desc, R.string.activity_notification_action),
         "dismiss_notification" to ToolPresentation(Icons.Rounded.ClearAll, R.string.tool_dismiss_notification, R.string.tool_dismiss_notification_desc, R.string.activity_dismiss_notification),
         "play_media" to ToolPresentation(Icons.Rounded.PlayArrow, R.string.tool_play_media, R.string.tool_play_media_desc, R.string.activity_play_media),
+        "update_event" to ToolPresentation(Icons.Rounded.EditCalendar, R.string.tool_update_event, R.string.tool_update_event_desc, R.string.activity_update_event),
+        "delete_event" to ToolPresentation(Icons.Rounded.EventBusy, R.string.tool_delete_event, R.string.tool_delete_event_desc, R.string.activity_delete_event),
+        "list_calendars" to ToolPresentation(Icons.Rounded.CalendarMonth, R.string.tool_list_calendars, R.string.tool_list_calendars_desc, R.string.activity_list_calendars),
+        "next_alarm" to ToolPresentation(Icons.Rounded.Alarm, R.string.tool_next_alarm, R.string.tool_next_alarm_desc, R.string.activity_next_alarm),
+        "dismiss_alarm" to ToolPresentation(Icons.Rounded.AlarmOff, R.string.tool_dismiss_alarm, R.string.tool_dismiss_alarm_desc, R.string.activity_dismiss_alarm),
+        "snooze_alarm" to ToolPresentation(Icons.Rounded.Snooze, R.string.tool_snooze_alarm, R.string.tool_snooze_alarm_desc, R.string.activity_snooze_alarm),
+        "dismiss_timer" to ToolPresentation(Icons.Rounded.TimerOff, R.string.tool_dismiss_timer, R.string.tool_dismiss_timer_desc, R.string.activity_dismiss_timer),
+        "read_sms" to ToolPresentation(Icons.Rounded.Sms, R.string.tool_read_sms, R.string.tool_read_sms_desc, R.string.activity_read_sms),
+        "recent_calls" to ToolPresentation(Icons.Rounded.History, R.string.tool_recent_calls, R.string.tool_recent_calls_desc, R.string.activity_recent_calls),
+        "create_contact" to ToolPresentation(Icons.Rounded.PersonAdd, R.string.tool_create_contact, R.string.tool_create_contact_desc, R.string.activity_create_contact),
+        "add_contact_info" to ToolPresentation(Icons.Rounded.Contacts, R.string.tool_add_contact_info, R.string.tool_add_contact_info_desc, R.string.activity_add_contact_info),
+        "list_photos" to ToolPresentation(Icons.Rounded.PhotoLibrary, R.string.tool_list_photos, R.string.tool_list_photos_desc, R.string.activity_list_photos),
+        "share_photo" to ToolPresentation(Icons.Rounded.Share, R.string.tool_share_photo, R.string.tool_share_photo_desc, R.string.activity_share_photo),
+        "screen_capture" to ToolPresentation(Icons.Rounded.Screenshot, R.string.tool_screen_capture, R.string.tool_screen_capture_desc, R.string.activity_screen_capture),
+        "copy_text" to ToolPresentation(Icons.Rounded.ContentCopy, R.string.tool_copy_text, R.string.tool_copy_text_desc, R.string.activity_copy_text),
     )
 
     fun of(tool: String): ToolPresentation = map[tool] ?: ToolPresentation(Icons.Rounded.Build, R.string.tool_generic)

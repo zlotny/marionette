@@ -10,11 +10,13 @@ import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.DoNotDisturbOn
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Router
 import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material.icons.rounded.TouchApp
@@ -48,6 +50,8 @@ val Access.presentation: AccessPresentation
         Access.CONTACTS -> AccessPresentation(Icons.Rounded.Contacts, R.string.access_contacts, R.string.access_contacts_body)
         Access.PHONE -> AccessPresentation(Icons.Rounded.Call, R.string.access_phone, R.string.access_phone_body)
         Access.SMS -> AccessPresentation(Icons.Rounded.Sms, R.string.access_sms, R.string.access_sms_body)
+        Access.CALL_LOG -> AccessPresentation(Icons.Rounded.History, R.string.access_call_log, R.string.access_call_log_body)
+        Access.PHOTOS -> AccessPresentation(Icons.Rounded.PhotoLibrary, R.string.access_photos, R.string.access_photos_body)
         Access.CALENDAR -> AccessPresentation(Icons.Rounded.CalendarMonth, R.string.access_calendar, R.string.access_calendar_body)
         Access.NEARBY_DEVICES -> AccessPresentation(Icons.Rounded.Bluetooth, R.string.access_nearby, R.string.access_nearby_body)
         Access.LOCAL_NETWORK -> AccessPresentation(Icons.Rounded.Router, R.string.access_local_network, R.string.access_local_network_body)

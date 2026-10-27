@@ -4,16 +4,21 @@ import dev.marionette.voice.AudioSpec
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import kotlin.math.log10
+import kotlin.math.sqrt
 
-data class Detection(val score: Float, val wake: Boolean, val stop: Boolean)
+data class Detection(val score: Float, val wake: Boolean, val stop: Boolean, val wakeVotes: Int = 0, val blocked: Boolean = false)
 
 class AcousticWakeDetector(
     private val embedder: SpeechEmbedder,
     wakeTemplates: List<List<FloatArray>>,
     stopTemplates: List<List<FloatArray>> = emptyList(),
+    speech: List<List<FloatArray>> = emptyList(),
+    private val minPhraseDbfs: Float = Float.NEGATIVE_INFINITY,
 ) {
 
     private class Track(val template: List<FloatArray>, val limit: Float = Float.POSITIVE_INFINITY) {
+        var lastHit = Int.MIN_VALUE / 2
         var previous = FloatArray(template.size) { Float.POSITIVE_INFINITY }
         var beforePrevious = FloatArray(template.size) { Float.POSITIVE_INFINITY }
 
@@ -35,8 +40,10 @@ class AcousticWakeDetector(
     }
 
     private val noise = NoiseProbe.embeddings(embedder)
-    private val wakeTracks = wakeTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map { Track(it, noiseLimit(it, noise)) }
-    private val stopTracks = stopTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map { Track(it, noiseLimit(it, noise)) }
+    private val wakeTracks = wakeTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map { Track(it, limit(it, noise, speech)) }
+    private val stopTracks = stopTemplates.filter { it.size >= MIN_TEMPLATE_FRAMES }.map { Track(it, limit(it, noise, speech)) }
+    private var hop = 0
+    private val levels = ArrayDeque<Float>()
     private val pending = FloatArray(HOP_SAMPLES * 4)
     private var pendingCount = 0
     private val melInput = FloatArray(MEL_CONTEXT_SAMPLES + HOP_SAMPLES)
@@ -50,10 +57,14 @@ class AcousticWakeDetector(
 
     val stopArmed: Boolean get() = stopTracks.isNotEmpty()
 
+    val wakeUsable: Int get() = wakeTracks.count { it.limit >= WakeSensitivity.MIN_THRESHOLD }
+
     fun accept(samples: FloatArray, threshold: Float, listenForStop: Boolean = false): Detection? {
         var best: Float? = null
         var wake = false
         var stop = false
+        var votes = 0
+        var blocked = false
         var offset = 0
         while (offset < samples.size) {
             val take = minOf(samples.size - offset, pending.size - pendingCount)
@@ -65,12 +76,14 @@ class AcousticWakeDetector(
                     best = minOf(best ?: hop.score, hop.score)
                     wake = wake || hop.wake
                     stop = stop || hop.stop
+                    votes = maxOf(votes, hop.wakeVotes)
+                    blocked = blocked || hop.blocked
                 }
                 pending.copyInto(pending, 0, HOP_SAMPLES, pendingCount)
                 pendingCount -= HOP_SAMPLES
             }
         }
-        return best?.let { Detection(it, wake && !stop, stop) }
+        return best?.let { Detection(it, wake && !stop, stop, votes, blocked && !wake && !stop) }
     }
 
     private fun processHop(threshold: Float, listenForStop: Boolean): Detection? {
@@ -80,8 +93,11 @@ class AcousticWakeDetector(
         mel.takeLast(HOP_SAMPLES / 160).forEach { melFrames.addLast(it) }
         while (melFrames.size > SpeechEmbedder.WINDOW) melFrames.removeFirst()
         quietHops = if (gate.isQuiet(pending, HOP_SAMPLES)) quietHops + 1 else 0
+        levels.addLast(levelDbfs(pending, HOP_SAMPLES))
+        while (levels.size > LEVEL_HOPS) levels.removeFirst()
         framesSinceWake++
         framesSinceStop++
+        hop++
         if (melFrames.size < SpeechEmbedder.WINDOW) return null
         if (!listenForStop) stopTracks.forEach { it.reset() }
         if (quietHops > WINDOW_HOPS) {
@@ -96,13 +112,22 @@ class AcousticWakeDetector(
         val stopScores = if (stopping) stopTracks.map { it.push(frame) } else emptyList()
         val wakeScore = wakeScores.minOrNull() ?: Float.POSITIVE_INFINITY
         val stopScore = stopScores.minOrNull() ?: Float.POSITIVE_INFINITY
-        val stopHit = stopScores.indices.any { stopScores[it] < minOf(threshold, stopTracks[it].limit) }
-        val wakeHit = wakeScores.indices.any { wakeScores[it] < minOf(threshold, wakeTracks[it].limit) }
-        val stop = stopHit && framesSinceStop * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
-        val wake = !stop && wakeHit && framesSinceWake * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
+        val stopVotes = votes(stopTracks, stopScores, threshold)
+        val wakeVotes = votes(wakeTracks, wakeScores, threshold)
+        val stopHit = stopVotes > 0
+        val wakeHit = wakeVotes >= minOf(VOTES, wakeTracks.size) && levels.max() >= minPhraseDbfs
+        val stop = stopVotes > 0 && stopHit && framesSinceStop * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
+        val wake = !stop && wakeVotes > 0 && wakeHit && framesSinceWake * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
         if (stop) framesSinceStop = 0
         if (wake) framesSinceWake = 0
-        return Detection(minOf(wakeScore, stopScore), wake, stop)
+        val blocked = !wake && framesSinceWake * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS &&
+            wakeScores.any { it < threshold }
+        return Detection(minOf(wakeScore, stopScore), wake, stop, wakeVotes, blocked)
+    }
+
+    private fun votes(tracks: List<Track>, scores: List<Float>, threshold: Float): Int {
+        scores.indices.forEach { if (scores[it] < minOf(threshold, tracks[it].limit)) tracks[it].lastHit = hop }
+        return tracks.count { hop - it.lastHit < VOTE_HOPS }
     }
 
     companion object {
@@ -112,11 +137,26 @@ class AcousticWakeDetector(
         private const val REFRACTORY_SECONDS = 1.5f
         private const val WINDOW_HOPS = SpeechEmbedder.WINDOW * 160 / HOP_SAMPLES + 1
         private const val NOISE_MARGIN = 0.05f
-
-        fun noiseLimit(template: List<FloatArray>, noise: List<FloatArray>): Float {
-            val track = Track(template)
-            return noise.minOfOrNull { track.push(it) }?.minus(NOISE_MARGIN) ?: Float.POSITIVE_INFINITY
+        private const val SPEECH_MARGIN = 0f
+        private const val VOTES = 2
+        private const val VOTE_HOPS = 4
+        private const val LEVEL_HOPS = 20
+        fun levelDbfs(pcm: FloatArray, count: Int, offset: Int = 0): Float {
+            var sum = 0.0
+            for (i in offset until offset + count) {
+                val s = pcm[i] / 32768f
+                sum += s * s
+            }
+            return 20 * log10(sqrt(sum / count).toFloat() + 1e-9f)
         }
+
+        fun noiseLimit(template: List<FloatArray>, noise: List<FloatArray>, margin: Float = NOISE_MARGIN): Float {
+            val track = Track(template)
+            return noise.minOfOrNull { track.push(it) }?.minus(margin) ?: Float.POSITIVE_INFINITY
+        }
+
+        fun limit(template: List<FloatArray>, noise: List<FloatArray>, speech: List<List<FloatArray>>): Float =
+            speech.fold(noiseLimit(template, noise)) { acc, frames -> minOf(acc, noiseLimit(template, frames, SPEECH_MARGIN)) }
 
         private fun dot(a: FloatArray, b: FloatArray): Float {
             var s = 0f

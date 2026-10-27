@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import dev.marionette.core.Logger
 
 data class ScreenNode(
@@ -44,8 +45,30 @@ class MarionetteAccessibilityService : AccessibilityService() {
 
     fun foregroundPackage(): String? = rootInActiveWindow?.packageName?.toString()
 
-    fun snapshot(maxNodes: Int): List<ScreenNode> {
-        val root = rootInActiveWindow ?: return emptyList<ScreenNode>().also { lastNodes = it }
+    @Volatile
+    var lastPackage: String? = null
+        private set
+
+    fun snapshot(maxNodes: Int, blocked: Set<String> = emptySet()): List<ScreenNode> {
+        val active = rootInActiveWindow
+        val fallback = windows.asSequence()
+            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .sortedByDescending { it.layer }
+            .mapNotNull { it.root }
+            .filter { it.packageName != active?.packageName }
+        for (root in sequenceOf(active).filterNotNull() + fallback) {
+            if (root.packageName?.toString() in blocked) continue
+            val nodes = snapshot(root, maxNodes)
+            if (nodes.isNotEmpty()) {
+                lastPackage = root.packageName?.toString()
+                return nodes.also { lastNodes = it }
+            }
+        }
+        lastPackage = active?.packageName?.toString()
+        return emptyList<ScreenNode>().also { lastNodes = it }
+    }
+
+    private fun snapshot(root: AccessibilityNodeInfo, maxNodes: Int): List<ScreenNode> {
         val out = mutableListOf<ScreenNode>()
         val screen = Rect().also { root.getBoundsInScreen(it) }
         fun walk(node: AccessibilityNodeInfo?, depth: Int) {
@@ -76,7 +99,6 @@ class MarionetteAccessibilityService : AccessibilityService() {
             for (i in 0 until node.childCount) walk(node.getChild(i), depth + 1)
         }
         walk(root, 0)
-        lastNodes = out
         return out
     }
 

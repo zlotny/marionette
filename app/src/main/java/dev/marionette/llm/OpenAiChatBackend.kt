@@ -11,6 +11,7 @@ import dev.marionette.core.string
 import dev.marionette.core.text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArrayBuilder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -31,7 +32,7 @@ class OpenAiChatBackend(
     private val sessionUser: String? = null,
     private val reasoning: Reasoning? = null,
     private val modelHeader: String? = null,
-    private val client: OkHttpClient = Http.client,
+    private val client: OkHttpClient = Http.agent,
 ) : LlmBackend {
 
     override suspend fun complete(
@@ -95,7 +96,7 @@ class OpenAiChatBackend(
                     put("content", system)
                 }
             }
-            messages.forEach { message ->
+            messages.forEachIndexed { index, message ->
                 when (message) {
                     is ChatMessage.User -> addJsonObject {
                         put("role", "user")
@@ -119,10 +120,13 @@ class OpenAiChatBackend(
                             }
                         }
                     }
-                    is ChatMessage.ToolResult -> addJsonObject {
-                        put("role", "tool")
-                        put("tool_call_id", message.callId)
-                        put("content", message.content)
+                    is ChatMessage.ToolResult -> {
+                        addJsonObject {
+                            put("role", "tool")
+                            put("tool_call_id", message.callId)
+                            put("content", message.content)
+                        }
+                        if (messages.getOrNull(index + 1) !is ChatMessage.ToolResult) addToolImages(messages, index)
                     }
                 }
             }
@@ -141,6 +145,27 @@ class OpenAiChatBackend(
                 }
             }
             put("tool_choice", "auto")
+        }
+    }
+
+    private fun JsonArrayBuilder.addToolImages(messages: List<ChatMessage>, last: Int) {
+        val results = messages.subList(0, last + 1).takeLastWhile { it is ChatMessage.ToolResult }.filterIsInstance<ChatMessage.ToolResult>()
+        val images = results.filter { it.imageJpeg != null }
+        if (images.isEmpty()) return
+        addJsonObject {
+            put("role", "user")
+            putJsonArray("content") {
+                images.forEach { result ->
+                    addJsonObject {
+                        put("type", "text")
+                        put("text", "Image from ${result.name} (${result.callId}):")
+                    }
+                    addJsonObject {
+                        put("type", "image_url")
+                        putJsonObject("image_url") { put("url", "data:image/jpeg;base64,${result.imageJpeg}") }
+                    }
+                }
+            }
         }
     }
 

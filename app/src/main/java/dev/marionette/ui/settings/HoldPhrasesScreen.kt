@@ -10,7 +10,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -25,8 +27,10 @@ import dev.marionette.ui.components.SettingsIcon
 import dev.marionette.ui.components.SettingsNote
 import dev.marionette.ui.components.SettingsRow
 import dev.marionette.ui.components.SettingsScaffold
+import dev.marionette.ui.components.SliderRow
 import dev.marionette.ui.components.TextDialog
 import dev.marionette.ui.voice.localizedResources
+import kotlin.math.roundToInt
 
 @Composable
 fun HoldPhrasesScreen(onBack: () -> Unit) {
@@ -37,8 +41,27 @@ fun HoldPhrasesScreen(onBack: () -> Unit) {
     var editing by rememberSaveable { mutableStateOf<Int?>(null) }
     val save: (List<String>) -> Unit = { list -> updateSettings { it.copy(holdPhrases = list.takeUnless { l -> l == defaults }) } }
 
+    var delay by remember { mutableFloatStateOf(settings.holdSeconds.toFloat()) }
+
     SettingsScaffold(title = stringResource(R.string.voice_hold_title), onBack = onBack) {
         item { SettingsNote(stringResource(R.string.voice_hold_intro, agentName())) }
+        item {
+            SettingsGroup(null) {
+                item { i, n ->
+                    SliderRow(
+                        i, n,
+                        headline = stringResource(R.string.voice_hold_delay),
+                        supporting = stringResource(R.string.voice_hold_delay_body, agentName()),
+                        valueLabel = stringResource(R.string.unit_s, delay.roundToInt()),
+                        value = delay,
+                        valueRange = 1f..10f,
+                        steps = 8,
+                        onValueChange = { delay = it },
+                        onValueChangeFinished = { updateSettings { it.copy(holdSeconds = delay.roundToInt()) } },
+                    )
+                }
+            }
+        }
         item {
             SettingsGroup(null) {
                 phrases.forEachIndexed { index, phrase ->

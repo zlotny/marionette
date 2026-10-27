@@ -7,6 +7,7 @@ import dev.marionette.core.string
 import dev.marionette.llm.toLlmException
 import dev.marionette.voice.AudioSpec
 import dev.marionette.core.Logger
+import dev.marionette.settings.Languages
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.Locale
 
 class OpenAiSpeechToText(
     private val apiKey: () -> String,
@@ -31,7 +33,7 @@ class OpenAiSpeechToText(
 
     override fun isAvailable(): Boolean = apiKey().isNotBlank()
 
-    override suspend fun start(language: String, secondLanguage: String, onPartial: (String) -> Unit): SttSession = object : SttSession {
+    override suspend fun start(language: String, extraLanguages: List<String>, onPartial: (String) -> Unit): SttSession = object : SttSession {
         private val audio = ByteArrayOutputStream()
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         @Volatile private var speculation: Deferred<String>? = null
@@ -45,7 +47,7 @@ class OpenAiSpeechToText(
         override fun speculate() {
             if (speculation != null) return
             val pcm = snapshot()
-            speculation = scope.async { transcribe(pcm, language, secondLanguage) }
+            speculation = scope.async { transcribe(pcm, language, extraLanguages) }
         }
 
         override fun dropSpeculation() {
@@ -58,7 +60,7 @@ class OpenAiSpeechToText(
             if (early != null) {
                 runCatching { early.await() }.onSuccess { return it }
             }
-            return transcribe(snapshot(), language, secondLanguage)
+            return transcribe(snapshot(), language, extraLanguages)
         }
 
         override fun cancel() = scope.cancel()
@@ -66,14 +68,24 @@ class OpenAiSpeechToText(
         private fun snapshot(): ByteArray = synchronized(audio) { audio.toByteArray() }
     }
 
-    private suspend fun transcribe(pcm: ByteArray, language: String, secondLanguage: String): String = withContext(Dispatchers.IO) {
+    private suspend fun transcribe(pcm: ByteArray, language: String, extraLanguages: List<String>): String {
+        if (extraLanguages.isEmpty()) return request(pcm, language, hint = null)
+        val languages = listOf(language) + extraLanguages
+        val text = request(pcm, language, hint = hint(languages))
+        if (!TranscriptScript.foreign(text, languages)) return text
+        Logger.i("Cloud STT returned another script, retrying in $language")
+        return request(pcm, language, hint = null)
+    }
+
+    private suspend fun request(pcm: ByteArray, language: String, hint: String?): String = withContext(Dispatchers.IO) {
         if (pcm.size < AudioSpec.SAMPLE_RATE / 2) return@withContext ""
         val started = System.currentTimeMillis()
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("model", model)
             .addFormDataPart("response_format", "json")
             .apply {
-                if (secondLanguage.isBlank()) language.substringBefore('-').takeIf { it.length == 2 }?.let { addFormDataPart("language", it) }
+                if (hint != null) addFormDataPart("prompt", hint)
+                else language.substringBefore('-').takeIf { it.length == 2 }?.let { addFormDataPart("language", it) }
             }
             .addFormDataPart("file", "speech.wav", wav(pcm).toRequestBody("audio/wav".toMediaType()))
             .build()
@@ -90,6 +102,8 @@ class OpenAiSpeechToText(
     }
 
     companion object {
+        fun hint(languages: List<String>): String =
+            "The speaker talks ${languages.map { Languages.locale(it).getDisplayLanguage(Locale.ENGLISH) }.distinct().joinToString(" or ")}. Transcribe in the language spoken."
         fun wav(pcm: ByteArray): ByteArray {
             val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN).apply {
                 put("RIFF".toByteArray()); putInt(36 + pcm.size); put("WAVE".toByteArray())

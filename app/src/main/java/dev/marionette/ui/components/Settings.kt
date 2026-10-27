@@ -28,7 +28,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.TextButton
@@ -220,6 +222,57 @@ fun <T> ChoiceRow(
                 }
             },
             confirmButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
+}
+
+@Composable
+fun <T> MultiChoiceRow(
+    index: Int,
+    count: Int,
+    headline: String,
+    options: List<Pair<T, String>>,
+    selected: List<T>,
+    onChange: (List<T>) -> Unit,
+    none: String,
+    leading: (@Composable () -> Unit)? = null,
+    label: (index: Int, name: String) -> String = { _, name -> name },
+) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    SettingsRow(
+        index, count,
+        headline = headline,
+        supporting = selected.mapNotNull { value -> options.firstOrNull { it.first == value }?.second }
+            .mapIndexed(label).joinToString().ifBlank { none },
+        leading = leading,
+        onClick = { open = true },
+    )
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text(headline) },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(options) { (value, label) ->
+                        val checked = value in selected
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp)
+                                .toggleable(
+                                    value = checked,
+                                    role = Role.Checkbox,
+                                    onValueChange = { on -> onChange(if (on) selected + value else selected - value) },
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = checked, onCheckedChange = null)
+                            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_done)) } },
         )
     }
 }

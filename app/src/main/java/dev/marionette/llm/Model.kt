@@ -7,7 +7,7 @@ data class ToolCall(val id: String, val name: String, val arguments: String)
 sealed interface ChatMessage {
     data class User(val text: String) : ChatMessage
     data class Assistant(val text: String, val toolCalls: List<ToolCall> = emptyList(), val native: List<JsonObject> = emptyList()) : ChatMessage
-    data class ToolResult(val callId: String, val name: String, val content: String) : ChatMessage
+    data class ToolResult(val callId: String, val name: String, val content: String, val imageJpeg: String? = null) : ChatMessage
 }
 
 data class ToolSpec(val name: String, val description: String, val parameters: JsonObject)

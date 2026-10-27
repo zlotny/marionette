@@ -25,6 +25,9 @@ object SettingsNavigation {
     object WakeSensitivity
 
     @Serializable
+    object Activations
+
+    @Serializable
     object StopPhrases
 
     @Serializable
@@ -73,8 +76,10 @@ fun NavGraphBuilder.settingsGraph(nav: NavHostController) {
             onBack = nav::navigateUp,
             onOpenSensitivity = { nav.navigate(SettingsNavigation.WakeSensitivity) },
             onOpenVoiceTest = { nav.navigate(SettingsNavigation.VoiceTest) },
+            onOpenActivations = { nav.navigate(SettingsNavigation.Activations) },
         )
     }
+    composable<SettingsNavigation.Activations> { ActivationsScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.VoiceTest> { VoiceTestScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.WakeSensitivity> { WakeSensitivityScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.StopPhrases> { StopPhrasesScreen(onBack = nav::navigateUp) }

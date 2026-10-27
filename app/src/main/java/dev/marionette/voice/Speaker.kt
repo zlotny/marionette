@@ -10,6 +10,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import dev.marionette.core.Logger
+import dev.marionette.voice.wake.StopText
 import android.os.Build
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.ChannelResult
@@ -27,10 +28,13 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 class Speaker(private val context: Context) {
-    private var tts: TextToSpeech? = null
-    private val ready = CompletableDeferred<Boolean>()
+    @Volatile private var tts: TextToSpeech? = null
+    @Volatile private var ready = CompletableDeferred<Boolean>()
     private val waiting = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
     @Volatile private var stopSignal = CompletableDeferred<Unit>()
+    @Volatile private var systemText = ""
+    @Volatile private var cloudChunk = ""
+    private val spoken = ArrayDeque<Pair<Long, String>>()
     private val audio = context.getSystemService(AudioManager::class.java)
     private val attributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_ASSISTANT)
@@ -42,12 +46,17 @@ class Speaker(private val context: Context) {
 
     fun warmUp() {
         if (tts != null) return
+        val init = CompletableDeferred<Boolean>().also { ready = it }
         tts = TextToSpeech(context) { status ->
-            ready.complete(status == TextToSpeech.SUCCESS)
+            init.complete(status == TextToSpeech.SUCCESS)
         }.apply {
             setAudioAttributes(attributes)
             setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) = Unit
+
+                override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+                    systemText.takeIf { end <= it.length }?.let { remember(it.substring(start, end)) }
+                }
                 override fun onDone(utteranceId: String?) {
                     utteranceId?.let { waiting.remove(it)?.complete(Unit) }
                 }
@@ -64,10 +73,30 @@ class Speaker(private val context: Context) {
         }
     }
 
+    fun spokeRecently(words: Set<String>): Boolean {
+        if (words.isEmpty()) return false
+        if (StopText.words(cloudChunk).any { it in words }) return true
+        val since = System.currentTimeMillis() - ECHO_MILLIS
+        return synchronized(spoken) { spoken.any { (at, text) -> at >= since && StopText.words(text).any { it in words } } }
+    }
+
+    private fun remember(text: String) = synchronized(spoken) {
+        val now = System.currentTimeMillis()
+        spoken.addLast(now to text)
+        while (spoken.isNotEmpty() && spoken.first().first < now - ECHO_MILLIS) spoken.removeFirst()
+    }
+
     suspend fun voices(): List<Voice> {
         warmUp()
         if (!ready.await()) return emptyList()
         return runCatching { tts?.voices?.filterNot { it.isNetworkConnectionRequired }?.sortedBy { it.name } }.getOrNull().orEmpty()
+    }
+
+    suspend fun speaks(language: String): Boolean {
+        warmUp()
+        if (!ready.await()) return false
+        val locale = language.takeIf { it.isNotBlank() }?.let(Locale::forLanguageTag) ?: Locale.getDefault()
+        return (tts?.isLanguageAvailable(locale) ?: TextToSpeech.LANG_NOT_SUPPORTED) >= TextToSpeech.LANG_AVAILABLE
     }
 
     suspend fun speak(text: String, language: String, voiceName: String, rate: Float, cloud: CloudVoice? = null) {
@@ -106,8 +135,14 @@ class Speaker(private val context: Context) {
                     streams.onReceiveCatching { it.getOrNull() }
                     stop.onAwait { null }
                 } ?: break
-                val ok = play(stream, rate, stop) {
-                    if (played == 0) Logger.i("Cloud speech first audio after ${System.currentTimeMillis() - started} ms")
+                cloudChunk = chunks.getOrElse(played) { "" }
+                val ok = try {
+                    play(stream, rate, stop) {
+                        if (played == 0) Logger.i("Cloud speech first audio after ${System.currentTimeMillis() - started} ms")
+                    }
+                } finally {
+                    remember(cloudChunk)
+                    cloudChunk = ""
                 }
                 if (!ok) return@coroutineScope chunks.drop(played)
                 played++
@@ -185,9 +220,17 @@ class Speaker(private val context: Context) {
         }
     }
 
-    private suspend fun speakSystem(text: String, language: String, voiceName: String, rate: Float) {
+    private suspend fun speakSystem(text: String, language: String, voiceName: String, rate: Float, retry: Boolean = true) {
         warmUp()
-        if (!ready.await()) return
+        if (!ready.await()) {
+            Logger.w("Speech engine unavailable")
+            reconnect()
+            if (retry) {
+                delay(RECONNECT_DELAY_MILLIS)
+                speakSystem(text, language, voiceName, rate, retry = false)
+            }
+            return
+        }
         val engine = tts ?: return
         val locale = language.takeIf { it.isNotBlank() }?.let(Locale::forLanguageTag) ?: Locale.getDefault()
         val voice = voiceName.takeIf { it.isNotBlank() }?.let { name -> runCatching { engine.voices?.firstOrNull { it.name == name } }.getOrNull() }
@@ -197,13 +240,25 @@ class Speaker(private val context: Context) {
         val done = CompletableDeferred<Unit>()
         waiting[id] = done
         audio.requestAudioFocus(focus)
-        try {
-            engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
-            withTimeoutOrNull(MAX_SPEECH_MILLIS) { done.await() }
+        systemText = text
+        val accepted = try {
+            (engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.SUCCESS).also { accepted ->
+                if (accepted) withTimeoutOrNull(MAX_SPEECH_MILLIS) { done.await() }
+            }
         } finally {
             waiting.remove(id)
             audio.abandonAudioFocusRequest(focus)
         }
+        if (!accepted) {
+            Logger.w("Speech engine rejected the text, reconnecting")
+            reconnect()
+            if (retry) speakSystem(text, language, voiceName, rate, retry = false)
+        }
+    }
+
+    private fun reconnect() {
+        runCatching { tts?.shutdown() }
+        tts = null
     }
 
     fun stop() {
@@ -221,6 +276,8 @@ class Speaker(private val context: Context) {
 
     companion object {
         private const val MAX_SPEECH_MILLIS = 60_000L
+        private const val RECONNECT_DELAY_MILLIS = 1_000L
+        private const val ECHO_MILLIS = 1_500L
         private const val DRAIN_MARGIN_MILLIS = 500L
         private const val POLL_MILLIS = 20L
     }

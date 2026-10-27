@@ -17,8 +17,9 @@ object ContextBlock {
             if (s.latitude != null && s.longitude != null) {
                 val coords = "%.5f,%.5f".format(Locale.US, s.latitude, s.longitude)
                 val accuracy = s.accuracyMeters?.let { " accuracy ${it.roundToInt()}m" }.orEmpty()
+                val age = s.locationAgeSeconds?.takeIf { it >= STALE_SECONDS }?.let { " (${it}s old)" }.orEmpty()
                 val place = s.place?.let { ", $it" }.orEmpty()
-                add("location: $coords$accuracy$place")
+                add("location: $coords$accuracy$age$place")
             } else {
                 add("location: unknown")
             }
@@ -38,4 +39,6 @@ object ContextBlock {
             add("screen: ${if (s.screenOn) "on" else "off"}, ${if (s.locked == true) "locked" else "unlocked"}")
         }
     }.joinToString("\n")
+
+    private const val STALE_SECONDS = 30L
 }

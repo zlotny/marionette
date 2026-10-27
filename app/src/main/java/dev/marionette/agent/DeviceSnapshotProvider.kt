@@ -88,14 +88,18 @@ class DeviceSnapshotProvider(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun quickLocation(): Location? = background.async { location() }.let { pending -> withTimeoutOrNull(SNAPSHOT_LOCATION_MILLIS) { pending.await() } }
-        ?: cachedLocation
-        ?: if (hasLocationPermission()) runCatching { fused.lastLocation.awaitOrNull() }.getOrNull() else null
+    private suspend fun quickLocation(): Location? {
+        val pending = background.async { location() }
+        val known = cachedLocation ?: if (hasLocationPermission()) withTimeoutOrNull(SNAPSHOT_LOCATION_MILLIS) { runCatching { fused.lastLocation.awaitOrNull() }.getOrNull() } else null
+        known?.takeIf { ageMillis(it) < SNAPSHOT_MAX_AGE_MILLIS }?.let { return it }
+        return withTimeoutOrNull(SNAPSHOT_LOCATION_MILLIS) { pending.await() } ?: known
+    }
+
+    private fun ageMillis(location: Location): Long = (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000
 
     private suspend fun quickPlace(location: Location, locale: String): String? = background.async { placeName(location, locale) }.let { pending -> withTimeoutOrNull(SNAPSHOT_PLACE_MILLIS) { pending.await() } }
 
-    private fun isRecent(location: Location): Boolean =
-        (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000 < LOCATION_MAX_AGE_MILLIS
+    private fun isRecent(location: Location): Boolean = ageMillis(location) < LOCATION_MAX_AGE_MILLIS
 
     suspend fun snapshot(fields: Set<ContextField>, language: String): DeviceSnapshot {
         val location = if (ContextField.LOCATION in fields || ContextField.MOTION in fields) quickLocation() else null
@@ -108,9 +112,10 @@ class DeviceSnapshotProvider(private val context: Context) {
             latitude = location?.latitude,
             longitude = location?.longitude,
             accuracyMeters = location?.takeIf { it.hasAccuracy() }?.accuracy,
+            locationAgeSeconds = location?.let { ageMillis(it) / 1000 },
             place = if (ContextField.LOCATION in fields) location?.let { quickPlace(it, locale) } else null,
-            speedKmh = location?.takeIf { it.hasSpeed() }?.speed?.times(3.6f),
-            headingDegrees = location?.takeIf { it.hasBearing() && it.speed > 1f }?.bearing,
+            speedKmh = location?.takeIf { it.hasSpeed() && isRecent(it) }?.speed?.times(3.6f),
+            headingDegrees = location?.takeIf { it.hasBearing() && it.speed > 1f && isRecent(it) }?.bearing,
             batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it in 0..100 },
             charging = battery.isCharging,
             audioOutput = audioOutput(),
@@ -173,6 +178,7 @@ class DeviceSnapshotProvider(private val context: Context) {
         private const val LOCATION_TIMEOUT_MILLIS = 4_000L
         private const val GEOCODER_TIMEOUT_MILLIS = 2_500L
         private const val SNAPSHOT_LOCATION_MILLIS = 800L
+        private const val SNAPSHOT_MAX_AGE_MILLIS = 120_000L
         private const val SNAPSHOT_PLACE_MILLIS = 600L
         private val BLUETOOTH_TYPES = setOf(
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,

@@ -243,21 +243,7 @@ private fun GatewaySetup(form: BackendForm, actions: BackendActions) {
             onGo = actions.onCheckGateway,
         )
     }
-    val host = hostOf(form.gatewayUrl)
-    when (val check = form.gateway) {
-        is GatewayCheck.Unreachable -> StatusCard(false, stringResource(R.string.gateway_unreachable_title), stringResource(R.string.gateway_unreachable_body, host))
-        GatewayCheck.NotGateway -> StatusCard(false, stringResource(R.string.gateway_not_gateway_title), stringResource(R.string.gateway_not_gateway_body, host))
-        GatewayCheck.NeedsSecret -> StatusCard(null, stringResource(R.string.gateway_needs_secret_title), stringResource(R.string.gateway_needs_secret_body))
-        GatewayCheck.Rejected -> StatusCard(false, stringResource(R.string.gateway_rejected_title), stringResource(R.string.gateway_rejected_body))
-        GatewayCheck.RateLimited -> StatusCard(false, stringResource(R.string.gateway_rate_limited_title), stringResource(R.string.gateway_rate_limited_body))
-        is GatewayCheck.Failed -> StatusCard(false, stringResource(R.string.gateway_failed_title), check.message)
-        GatewayCheck.EndpointDisabled -> {
-            StatusCard(null, stringResource(R.string.gateway_disabled_title), stringResource(R.string.gateway_disabled_body))
-            CommandBox(OpenClawGateway.ENABLE_COMMAND)
-        }
-        is GatewayCheck.Ready -> StatusCard(true, stringResource(R.string.gateway_connected, host), null)
-        null -> Unit
-    }
+    GatewayStatus(form.gateway, hostOf(form.gatewayUrl))
     if (!form.gatewayReady) {
         Button(
             onClick = actions.onCheckGateway,
@@ -315,6 +301,24 @@ private fun GatewaySetup(form: BackendForm, actions: BackendActions) {
     TestSection(form, actions)
 }
 
+@Composable
+private fun GatewayStatus(check: GatewayCheck?, host: String) {
+    when (check) {
+        is GatewayCheck.Unreachable -> StatusCard(false, stringResource(R.string.gateway_unreachable_title), stringResource(R.string.gateway_unreachable_body, host))
+        GatewayCheck.NotGateway -> StatusCard(false, stringResource(R.string.gateway_not_gateway_title), stringResource(R.string.gateway_not_gateway_body, host))
+        GatewayCheck.NeedsSecret -> StatusCard(null, stringResource(R.string.gateway_needs_secret_title), stringResource(R.string.gateway_needs_secret_body))
+        GatewayCheck.Rejected -> StatusCard(false, stringResource(R.string.gateway_rejected_title), stringResource(R.string.gateway_rejected_body))
+        GatewayCheck.RateLimited -> StatusCard(false, stringResource(R.string.gateway_rate_limited_title), stringResource(R.string.gateway_rate_limited_body))
+        is GatewayCheck.Failed -> StatusCard(false, stringResource(R.string.gateway_failed_title), check.message)
+        GatewayCheck.EndpointDisabled -> {
+            StatusCard(null, stringResource(R.string.gateway_disabled_title), stringResource(R.string.gateway_disabled_body))
+            CommandBox(OpenClawGateway.ENABLE_COMMAND)
+        }
+        is GatewayCheck.Ready -> StatusCard(true, stringResource(R.string.gateway_connected, host), null)
+        null -> Unit
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun LiveProgressSection(form: BackendForm, actions: BackendActions) {
@@ -337,6 +341,10 @@ internal fun LiveProgressSection(form: BackendForm, actions: BackendActions) {
             PairState.Paired -> {
                 StatusCard(true, stringResource(R.string.live_progress_on), stringResource(R.string.live_progress_on_body))
                 TextButton(onClick = actions.onUnpair) { Text(stringResource(R.string.live_progress_unpair)) }
+            }
+            is PairState.Blocked -> {
+                GatewayStatus(pairing.check, hostOf(form.gatewayUrl))
+                OutlinedButton(onClick = actions.onPair, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.live_progress_retry)) }
             }
             is PairState.Failed -> {
                 StatusCard(false, stringResource(R.string.live_progress_failed), pairing.message)

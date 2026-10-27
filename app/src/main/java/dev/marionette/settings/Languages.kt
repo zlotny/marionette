@@ -6,7 +6,7 @@ import android.content.res.Resources
 import java.util.Locale
 
 object Languages {
-    val supported = listOf("", "es-ES", "es-MX", "en-US", "en-GB", "fr-FR", "de-DE", "it-IT", "pt-BR", "pt-PT", "ca-ES")
+    val supported = listOf("", "es-ES", "es-MX", "en-US", "en-GB", "fr-FR", "de-DE", "it-IT", "pt-BR", "pt-PT", "ca-ES", "gl-ES", "eu-ES", "nl-NL", "pl-PL")
 
     fun locale(tag: String): Locale = tag.takeIf { it.isNotBlank() }?.let(Locale::forLanguageTag) ?: Locale.getDefault()
 

@@ -1,15 +1,30 @@
 package dev.marionette.tools
 
 import android.accessibilityservice.AccessibilityService
+import android.graphics.Bitmap
+import android.os.Build
+import android.view.Display
+import androidx.annotation.RequiresApi
 import dev.marionette.assist.AssistantSession
 import dev.marionette.core.int
 import dev.marionette.core.string
 import dev.marionette.screen.MarionetteAccessibilityService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import java.io.ByteArrayOutputStream
+import java.util.Base64
+import kotlin.coroutines.resume
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 private const val KEYGUARD_SETTLE_MILLIS = 800L
 private const val OVERLAY_SETTLE_MILLIS = 400L
+private const val EMPTY_RETRIES = 6
+private const val EMPTY_RETRY_MILLIS = 250L
 
 private suspend fun screenGuard(ctx: ToolContext): Pair<MarionetteAccessibilityService?, JsonObject?> {
     val service = MarionetteAccessibilityService.instance
@@ -28,11 +43,24 @@ private suspend fun screenGuard(ctx: ToolContext): Pair<MarionetteAccessibilityS
     return service to null
 }
 
-private fun describeScreen(service: MarionetteAccessibilityService, ctx: ToolContext, maxNodes: Int): JsonObject {
-    val pkg = service.foregroundPackage()
+private suspend fun describeScreen(service: MarionetteAccessibilityService, ctx: ToolContext, maxNodes: Int): JsonObject {
+    var nodes = service.snapshot(maxNodes, ctx.settings.uiAutomationBlocklist)
+    repeat(EMPTY_RETRIES) {
+        if (nodes.isNotEmpty()) return@repeat
+        delay(EMPTY_RETRY_MILLIS)
+        nodes = service.snapshot(maxNodes, ctx.settings.uiAutomationBlocklist)
+    }
+    val pkg = service.lastPackage
     val pm = ctx.context.packageManager
     val label = pkg?.let { runCatching { pm.getApplicationLabel(pm.getApplicationInfo(it, 0)).toString() }.getOrNull() }
-    val nodes = service.snapshot(maxNodes)
+    if (nodes.isEmpty()) {
+        return ToolResults.ok(
+            "app" to (label ?: pkg),
+            "package" to pkg,
+            "elements" to emptyList<String>(),
+            "note" to "The screen exposes no readable elements right now (loading, animating, or drawn without accessibility data). Screen control still works: call ui_read again, or use back.",
+        )
+    }
     return ToolResults.ok(
         "app" to (label ?: pkg),
         "package" to pkg,
@@ -103,14 +131,14 @@ class UiActTool : Tool {
         val done = if (global != null) {
             service.performGlobalAction(global)
         } else {
-            if (service.lastNodes.isEmpty()) service.snapshot(400)
+            if (service.lastNodes.isEmpty()) service.snapshot(400, ctx.settings.uiAutomationBlocklist)
             val id = args.int("id")
             val text = args.string("text")
             val target = when {
                 id != null -> service.lastNodes.firstOrNull { it.id == id }
                 action != "type" && text != null -> {
                     val folded = InstalledApps.fold(text)
-                    service.snapshot(400).let { nodes ->
+                    service.snapshot(400, ctx.settings.uiAutomationBlocklist).let { nodes ->
                         nodes.firstOrNull { InstalledApps.fold(it.text.orEmpty()) == folded } ?: nodes.firstOrNull { folded in InstalledApps.fold(it.text.orEmpty()) }
                     }
                 }
@@ -144,5 +172,88 @@ class UiActTool : Tool {
             "notifications" to AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS,
             "quick_settings" to AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS,
         )
+    }
+}
+
+object ScreenImages {
+    fun fit(width: Int, height: Int, maxSide: Int): Pair<Int, Int> {
+        val longest = max(width, height)
+        if (longest <= maxSide) return width to height
+        val scale = maxSide.toFloat() / longest
+        return (width * scale).roundToInt().coerceAtLeast(1) to (height * scale).roundToInt().coerceAtLeast(1)
+    }
+
+    fun jpegBase64(bitmap: Bitmap, maxSide: Int, quality: Int): String {
+        val (w, h) = fit(bitmap.width, bitmap.height, maxSide)
+        val scaled = if (w == bitmap.width && h == bitmap.height) bitmap else Bitmap.createScaledBitmap(bitmap, w, h, true)
+        val out = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
+        if (scaled !== bitmap) scaled.recycle()
+        return Base64.getEncoder().encodeToString(out.toByteArray())
+    }
+}
+
+class ScreenCaptureTool : Tool {
+    override val name = "screen_capture"
+    override val readOnly = true
+    override val category = ToolCategory.SCREEN
+    override val description =
+        "Take a screenshot of the phone screen and see it as an image. Use it when ui_read text is not enough: " +
+            "photos, maps, charts, games or a layout. Secure screens show black. Needs the phone unlocked."
+    override val parameters = schema {}
+
+    override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return ToolResults.error("unsupported", "Screenshots need Android 11 or later.")
+        val (service, error) = screenGuard(ctx)
+        if (service == null) return error!!
+        var shot = service.screenshot()
+        if (shot.second == AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) {
+            delay(RETRY_MILLIS)
+            shot = service.screenshot()
+        }
+        val bitmap = shot.first ?: return ToolResults.error("capture_failed", "The screen could not be captured (error ${shot.second}).")
+        val (w, h) = ScreenImages.fit(bitmap.width, bitmap.height, MAX_SIDE)
+        val image = withContext(Dispatchers.Default) {
+            try {
+                ScreenImages.jpegBase64(bitmap, MAX_SIDE, JPEG_QUALITY)
+            } finally {
+                bitmap.recycle()
+            }
+        }
+        return ToolResults.ok(
+            "package" to service.foregroundPackage(),
+            "width" to w,
+            "height" to h,
+            "note" to "The screenshot is attached as an image.",
+            ToolResults.IMAGE_JPEG to image,
+        )
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private suspend fun AccessibilityService.screenshot(): Pair<Bitmap?, Int> = suspendCancellableCoroutine { cont ->
+        takeScreenshot(
+            Display.DEFAULT_DISPLAY,
+            Dispatchers.Default.asExecutor(),
+            object : AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                    val buffer = result.hardwareBuffer
+                    val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)?.let { hardware ->
+                        hardware.copy(Bitmap.Config.ARGB_8888, false).also { hardware.recycle() }
+                    }
+                    buffer.close()
+                    cont.resume(bitmap to 0) { _, value, _ -> value.first?.recycle() }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    cont.resume(null to errorCode)
+                }
+            },
+        )
+    }
+
+    companion object {
+        private const val MAX_SIDE = 1024
+        private const val JPEG_QUALITY = 70
+        private const val RETRY_MILLIS = 400L
     }
 }

@@ -27,6 +27,7 @@ sealed interface PairState {
     data class Waiting(val requestId: String?) : PairState
     data object Paired : PairState
     data class Failed(val message: String) : PairState
+    data class Blocked(val check: GatewayCheck) : PairState
 }
 
 data class BackendForm(
@@ -133,10 +134,18 @@ class BackendViewModel : ViewModel() {
 
     fun pair() {
         val form = _form.value
-        if (!form.gatewayReady) return
+        if (!form.isGateway || form.gatewayUrl.isBlank()) return
         pairJob?.cancel()
         _form.update { it.copy(pairing = PairState.Waiting(null)) }
         pairJob = viewModelScope.launch {
+            if (!form.gatewayReady) {
+                val check = OpenClawGateway.check(form.gatewayUrl, form.apiKey.trim())
+                _form.update { it.copy(gateway = check) }
+                if (check !is GatewayCheck.Ready) {
+                    _form.update { it.copy(pairing = PairState.Blocked(check)) }
+                    return@launch
+                }
+            }
             val identity = DeviceIdentity.parse(settings.current.gatewayDeviceKey)
                 ?: DeviceIdentity.create().also { created -> settings.update { it.copy(gatewayDeviceKey = created.serialize()) } }
             repeat(PAIR_ATTEMPTS) {

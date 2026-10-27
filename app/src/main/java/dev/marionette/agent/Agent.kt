@@ -28,7 +28,9 @@ import dev.marionette.settings.SettingsStore
 import dev.marionette.tools.ToolContext
 import dev.marionette.tools.ToolRegistry
 import dev.marionette.tools.ToolResults
+import dev.marionette.tools.imageJpeg
 import dev.marionette.tools.isError
+import dev.marionette.tools.withoutImage
 import java.io.IOException
 import java.util.Collections
 import kotlinx.coroutines.CancellationException
@@ -173,6 +175,7 @@ class Agent(
         val specs = registry.specs(s.disabledTools)
         trace.offeredTools = specs.map { it.name }
         val pending = mutableListOf<ChatMessage>(ChatMessage.User(input))
+        history.replaceAll { if (it is ChatMessage.ToolResult && it.imageJpeg != null) it.copy(imageJpeg = null) else it }
         history += pending
         trimHistory()
         val outgoing = { if (s.provider.isAgent) pending.toList() else history.toList() }
@@ -240,7 +243,7 @@ class Agent(
                             onQuiet()
                         }
                     }
-                    val message = ChatMessage.ToolResult(call.id, call.name, result.toString())
+                    val message = ChatMessage.ToolResult(call.id, call.name, result.withoutImage().toString(), result.imageJpeg())
                     history += message
                     pending += message
                 }
@@ -318,6 +321,7 @@ class Agent(
             registry.execute(call.name, call.arguments, ctx)
         }
         val duration = System.currentTimeMillis() - started
+        val stored = result.withoutImage()
         val declined = result["error"]?.toString()?.contains("declined_by_user") == true
         val status = when {
             declined -> StepStatus.DECLINED
@@ -325,10 +329,10 @@ class Agent(
             else -> StepStatus.DONE
         }
         conversation.update(id) { turn ->
-            turn.copy(steps = turn.steps.map { if (it is ToolStep && it.callId == call.id) it.copy(status = status, detail = result.toString()) else it })
+            turn.copy(steps = turn.steps.map { if (it is ToolStep && it.callId == call.id) it.copy(status = status, detail = stored.toString()) else it })
         }
-        actionLog.append(ActionEntry(System.currentTimeMillis(), call.name, call.arguments, result.toString(), !result.isError(), duration))
-        trace.tool(call, result, duration)
+        actionLog.append(ActionEntry(System.currentTimeMillis(), call.name, call.arguments, stored.toString(), !result.isError(), duration))
+        trace.tool(call, stored, duration)
         return result
     }
 

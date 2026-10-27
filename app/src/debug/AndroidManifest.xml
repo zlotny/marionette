@@ -14,6 +14,7 @@
                 <action android:name="dev.marionette.DEBUG_AUDIO" />
                 <action android:name="dev.marionette.DEBUG_CONFIRM" />
                 <action android:name="dev.marionette.DEBUG_CAPTURE" />
+                <action android:name="dev.marionette.DEBUG_SAY" />
                 <action android:name="dev.marionette.DEBUG_ENROLL_STOP" />
                 <action android:name="dev.marionette.DEBUG_ENROLL_FINISH" />
             </intent-filter>

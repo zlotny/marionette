@@ -49,7 +49,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import dev.marionette.MarionetteApp
 import dev.marionette.R
 import dev.marionette.health.BackendHealth
 import dev.marionette.settings.AppSettings
@@ -60,7 +59,6 @@ import dev.marionette.voice.VoiceService
 import dev.marionette.voice.VoiceStatus
 import dev.marionette.voice.stt.AndroidSpeechToText
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.net.URI
 
 enum class Issue { OFFLINE, UNREACHABLE, REJECTED, FAILING, VOICE_OFF, PAUSED, SPEECH_LANGUAGE, NO_WAKE }
@@ -180,7 +178,7 @@ fun HealthSheet(
                 }
                 Issue.PAUSED -> SheetButton(R.string.health_action_resume) {
                     onDismiss()
-                    MarionetteApp.graph.scope.launch { MarionetteApp.graph.settings.update { it.copy(listeningPaused = false) } }
+                    VoiceService.send(context, VoiceService.ACTION_RESUME)
                 }
                 Issue.SPEECH_LANGUAGE -> SheetButton(R.string.health_action_download) {
                     AndroidSpeechToText.downloadLanguage(context, settings.language)

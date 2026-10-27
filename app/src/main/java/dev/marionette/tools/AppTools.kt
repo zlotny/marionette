@@ -1,5 +1,7 @@
 package dev.marionette.tools
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
@@ -8,6 +10,8 @@ import android.os.Build
 import android.provider.Settings
 import dev.marionette.core.int
 import dev.marionette.core.string
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.text.Normalizer
 
@@ -193,5 +197,24 @@ class OpenSettingsTool : Tool {
             "storage" to Settings.ACTION_INTERNAL_STORAGE_SETTINGS,
             "cast" to Settings.ACTION_CAST_SETTINGS,
         )
+    }
+}
+
+class CopyTextTool : Tool {
+    override val name = "copy_text"
+    override val category = ToolCategory.APPS
+    override val description = "Put text on the phone clipboard, ready to paste."
+    override val parameters = schema {
+        string("text", "Text to copy.", required = true)
+    }
+
+    override fun summary(args: JsonObject) = args.string("text")?.take(40).orEmpty()
+
+    override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
+        val text = args.string("text")?.takeIf { it.isNotEmpty() } ?: return ToolResults.error("bad_arguments", "text is required.")
+        withContext(Dispatchers.Main) {
+            ctx.context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Marionette", text))
+        }
+        return ToolResults.ok("status" to "copied", "characters" to text.length)
     }
 }

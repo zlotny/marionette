@@ -8,6 +8,7 @@ data class DeviceSnapshot(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val accuracyMeters: Float? = null,
+    val locationAgeSeconds: Long? = null,
     val place: String? = null,
     val speedKmh: Float? = null,
     val headingDegrees: Float? = null,

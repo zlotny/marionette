@@ -29,7 +29,7 @@ class AnthropicBackend(
     private val model: String,
     private val maxTokens: Int = 16_000,
     private val thinking: Thinking? = null,
-    private val client: OkHttpClient = Http.client,
+    private val client: OkHttpClient = Http.agent,
 ) : LlmBackend {
 
     override suspend fun complete(
@@ -121,7 +121,24 @@ class AnthropicBackend(
                         is ChatMessage.ToolResult -> addJsonObject {
                             put("type", "tool_result")
                             put("tool_use_id", message.callId)
-                            put("content", message.content)
+                            if (message.imageJpeg == null) {
+                                put("content", message.content)
+                            } else {
+                                putJsonArray("content") {
+                                    addJsonObject {
+                                        put("type", "text")
+                                        put("text", message.content)
+                                    }
+                                    addJsonObject {
+                                        put("type", "image")
+                                        putJsonObject("source") {
+                                            put("type", "base64")
+                                            put("media_type", "image/jpeg")
+                                            put("data", message.imageJpeg)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

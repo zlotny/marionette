@@ -114,4 +114,5 @@ def main():
         print(f"threshold {threshold:.2f}: positives {' '.join(line)}  false accepts {fa} ({fa / (total_neg / 60):.1f}/min)")
 
 
-main()
+if __name__ == "__main__":
+    main()

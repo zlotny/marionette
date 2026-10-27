@@ -44,6 +44,7 @@ import dev.marionette.ui.components.ChoiceDetail
 import dev.marionette.ui.components.formatSeconds
 import dev.marionette.ui.components.formatUsd
 import dev.marionette.ui.components.ChoiceRow
+import dev.marionette.ui.components.MultiChoiceRow
 import dev.marionette.ui.components.RadioCardRow
 import dev.marionette.ui.components.SettingsGroup
 import dev.marionette.ui.components.SettingsIcon
@@ -116,28 +117,26 @@ fun RecognitionScreen(onBack: () -> Unit) {
         item {
             SettingsGroup(stringResource(R.string.voice_group_language)) {
                 item { i, n ->
-                    ChoiceRow(
+                    val main = stringResource(R.string.voice_language_main)
+                    MultiChoiceRow(
                         i, n,
-                        headline = stringResource(R.string.voice_language),
-                        options = languageOptions(),
-                        selected = settings.language,
-                        onSelect = { tag -> updateSettings { it.copy(language = tag, ttsVoice = "", secondLanguage = it.secondLanguage.takeIf { other -> other != tag }.orEmpty()) } },
+                        headline = stringResource(R.string.voice_languages),
+                        options = languageOptions().filter { (tag, _) -> tag.isNotBlank() },
+                        selected = listOfNotNull(settings.language.ifBlank { null }) + settings.extraLanguages,
+                        onChange = { tags ->
+                            updateSettings {
+                                val language = tags.firstOrNull().orEmpty()
+                                it.copy(language = language, extraLanguages = tags.drop(1), ttsVoice = if (language == it.language) it.ttsVoice else "")
+                            }
+                        },
+                        none = stringResource(R.string.voice_language_system),
                         leading = { SettingsIcon(Icons.Rounded.Translate) },
-                    )
-                }
-                item { i, n ->
-                    ChoiceRow(
-                        i, n,
-                        headline = stringResource(R.string.voice_second_language),
-                        options = listOf("" to stringResource(R.string.voice_second_language_none)) +
-                            languageOptions().filter { (tag, _) -> tag.isNotBlank() && tag != settings.language },
-                        selected = settings.secondLanguage,
-                        onSelect = { tag -> updateSettings { it.copy(secondLanguage = tag) } },
-                        leading = { SettingsIcon(Icons.Rounded.Translate) },
+                        label = { index, name -> if (index == 0) main.format(name) else name },
                     )
                 }
             }
         }
+        item { SettingsNote(stringResource(R.string.voice_languages_note)) }
         item {
             SettingsGroup(null) {
                 item { i, n ->
@@ -331,7 +330,11 @@ fun ConversationScreen(onBack: () -> Unit, onOpenHoldPhrases: () -> Unit) {
                         i, n,
                         headline = stringResource(R.string.voice_hold_title),
                         supporting = holdCount.let { count ->
-                            if (count == 0) stringResource(R.string.voice_hold_off) else pluralStringResource(R.plurals.voice_hold_summary, count, count)
+                            if (count == 0) {
+                                stringResource(R.string.voice_hold_off)
+                            } else {
+                                pluralStringResource(R.plurals.voice_hold_summary, count, count) + " · " + stringResource(R.string.voice_hold_after, settings.holdSeconds)
+                            }
                         },
                         leading = { SettingsIcon(Icons.Rounded.HourglassTop) },
                         onClick = onOpenHoldPhrases,
