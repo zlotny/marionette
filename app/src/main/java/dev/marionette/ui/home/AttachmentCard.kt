@@ -48,13 +48,16 @@ import dev.marionette.tools.AttachmentKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import android.util.LruCache
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextDirection
 
 @Composable
 fun AttachmentCard(attachment: Attachment) {
     val context = LocalContext.current
     val open = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(attachment.content))) } }
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     attachment.title ?: attachment.language.orEmpty(),
@@ -64,16 +67,16 @@ fun AttachmentCard(attachment: Attachment) {
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = { copy(context, attachment.content) }) {
-                    Icon(Icons.Rounded.ContentCopy, stringResource(R.string.reply_copy), Modifier.size(18.dp))
+                    Icon(Icons.Rounded.ContentCopy, stringResource(R.string.reply_copy), Modifier.size(20.dp))
                 }
             }
-            Column(Modifier.padding(end = 10.dp)) {
+            Column(Modifier.padding(end = 12.dp)) {
                 when (attachment.kind) {
                     AttachmentKind.LINK -> LinkLine(attachment.content) { open() }
-                    AttachmentKind.IMAGE -> RemoteImage(attachment.content) { open() }
+                    AttachmentKind.IMAGE -> RemoteImage(attachment.content, attachment.title) { open() }
                     AttachmentKind.CODE -> Text(
                         attachment.content,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr),
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                     )
@@ -86,25 +89,32 @@ fun AttachmentCard(attachment: Attachment) {
 
 @Composable
 private fun LinkLine(url: String, onClick: () -> Unit) {
-    Row(Modifier.clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = stringResource(R.string.action_open), onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.Link, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.size(8.dp))
-        Text(url, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(url, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Ltr), maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun RemoteImage(url: String, onClick: () -> Unit) {
-    val image by produceState<ImageBitmap?>(null, url) { value = withContext(Dispatchers.IO) { runCatching { load(url) }.getOrNull() } }
+private fun RemoteImage(url: String, title: String?, onClick: () -> Unit) {
+    val image by produceState(images.get(url), url) {
+        if (value == null) value = withContext(Dispatchers.IO) { runCatching { load(url) }.getOrNull() }?.also { images.put(url, it) }
+    }
     val loaded = image
     if (loaded == null) {
         LinkLine(url, onClick)
     } else {
         Image(
             loaded,
-            null,
+            title ?: stringResource(R.string.attachment_image),
             contentScale = ContentScale.FillWidth,
-            modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).clickable(onClick = onClick),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 360.dp)
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .clickable(role = Role.Image, onClickLabel = stringResource(R.string.action_open), onClick = onClick),
         )
     }
 }
@@ -119,3 +129,5 @@ private fun load(url: String): ImageBitmap? {
 }
 
 private const val MAX_IMAGE_WIDTH = 1080
+
+private val images = LruCache<String, ImageBitmap>(8)

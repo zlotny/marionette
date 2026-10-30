@@ -1,5 +1,6 @@
 package dev.marionette.ui.voice
 
+import dev.marionette.ui.components.settingsPanelColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.R
+import androidx.compose.foundation.layout.heightIn
 import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoicePhase
 import dev.marionette.voice.VoiceService
@@ -80,8 +82,8 @@ fun SpeechEnrollment(modifier: Modifier = Modifier) {
     }
     BackHandler(enabled = reading) {}
 
-    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Surface(shape = RoundedCornerShape(28.dp), color = settingsPanelColor(), modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.wake_speech_title), style = MaterialTheme.typography.titleLarge)
             when {
                 reading && progress >= 1f -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -132,7 +134,7 @@ fun SpeechEnrollment(modifier: Modifier = Modifier) {
                             VoiceService.enrollSpeech(context)
                         },
                         enabled = !enrolling,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     ) {
                         Icon(Icons.Rounded.RecordVoiceOver, null)
                         Spacer(Modifier.size(8.dp))

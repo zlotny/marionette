@@ -12,8 +12,8 @@ android {
         applicationId = "dev.marionette"
         minSdk = 29
         targetSdk = 37
-        versionCode = 6
-        versionName = "1.2.0"
+        versionCode = 7
+        versionName = "1.3.0"
         ndk { abiFilters += "arm64-v8a" }
     }
 
@@ -53,6 +53,7 @@ android {
     androidResources {
         noCompress += "onnx"
         generateLocaleConfig = true
+        localeFilters += listOf("en", "es")
     }
 
     testOptions {
@@ -72,6 +73,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.car.app)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3.expressive)
     implementation(libs.compose.material.icons.extended)

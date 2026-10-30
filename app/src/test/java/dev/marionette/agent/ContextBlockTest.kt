@@ -21,9 +21,11 @@ class ContextBlockTest {
         batteryPercent = 64,
         charging = true,
         audioOutput = "bluetooth",
-        androidAuto = false,
+        androidAuto = true,
         screenOn = true,
         locked = false,
+        clock = "no timers; next alarm tomorrow (Sun) 07:00",
+        messages = "none",
     )
 
     @Test
@@ -37,7 +39,9 @@ class ContextBlockTest {
                 "speed: 88 km/h, heading 181",
                 "battery: 64%, charging",
                 "audio_output: bluetooth",
-                "android_auto: false",
+                "driving: Android Auto connected",
+                "clock: no timers; next alarm tomorrow (Sun) 07:00",
+                "unread_messages: none",
                 "screen: on, unlocked",
             ),
             block.lines(),

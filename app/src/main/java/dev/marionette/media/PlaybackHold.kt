@@ -7,7 +7,10 @@ import android.media.AudioManager
 import android.media.session.MediaController
 import android.media.session.PlaybackState
 import android.view.KeyEvent
+import dev.marionette.MarionetteApp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class PlaybackHold(private val context: Context) {
     private val audio = context.getSystemService(AudioManager::class.java)
@@ -49,7 +52,9 @@ class PlaybackHold(private val context: Context) {
     }
 
     suspend fun release() {
-        paused?.transportControls?.play()
+        paused?.let { controller ->
+            if (audio.mode in CALL_MODES) MarionetteApp.graph.scope.launch { resumeAfterCall(controller) } else controller.transportControls.play()
+        }
         paused = null
         if (focusHeld) {
             audio.abandonAudioFocusRequest(focus)
@@ -62,6 +67,12 @@ class PlaybackHold(private val context: Context) {
         keepPaused = false
     }
 
+    private suspend fun resumeAfterCall(controller: MediaController) {
+        withTimeoutOrNull(CALL_WAIT_MILLIS) { while (audio.mode in CALL_MODES) delay(CALL_POLL_MILLIS) } ?: return
+        delay(FOCUS_SETTLE_MILLIS)
+        if (controller.playbackState?.state == PlaybackState.STATE_PAUSED && playingController() == null) controller.transportControls.play()
+    }
+
     private fun playingController(): MediaController? =
         MediaSessions.active(context).firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
 
@@ -72,5 +83,8 @@ class PlaybackHold(private val context: Context) {
 
     companion object {
         private const val FOCUS_SETTLE_MILLIS = 400L
+        private const val CALL_POLL_MILLIS = 1_000L
+        private const val CALL_WAIT_MILLIS = 2 * 3_600_000L
+        private val CALL_MODES = setOf(AudioManager.MODE_RINGTONE, AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_CALL_SCREENING)
     }
 }

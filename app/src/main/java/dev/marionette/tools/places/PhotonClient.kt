@@ -18,7 +18,7 @@ import java.io.IOException
 
 class PhotonClient(
     private val baseUrl: String = "https://photon.komoot.io",
-    private val client: OkHttpClient = Http.client,
+    private val client: OkHttpClient = Http.tools,
 ) {
     suspend fun search(text: String, near: LatLng, limit: Int, category: PlaceCategory?, language: String): List<Place> =
         withContext(Dispatchers.IO) {

@@ -10,6 +10,8 @@ import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.provider.Settings
 import dev.marionette.core.string
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlin.math.roundToInt
 
@@ -38,13 +40,15 @@ class DeviceSettingTool : Tool {
         string("setting", "Which setting.", required = true, enum = listOf("status", "volume", "ringer_mode", "do_not_disturb", "flashlight", "brightness"))
         string(
             "value",
-            "New value. volume: 0-100, up, down, mute, unmute. ringer_mode: normal, vibrate, silent. do_not_disturb: on, off, priority, alarms. " +
+            "New value. volume: 0-100, +N or -N percent points, up, down, mute, unmute. ringer_mode: normal, vibrate, silent. do_not_disturb: on, off, priority, alarms. " +
                 "flashlight: on, off. brightness: 0-100 or auto.",
         )
         string("stream", "Volume stream. Default media.", enum = STREAMS.keys.toList())
     }
 
     override fun summary(args: JsonObject) = listOfNotNull(args.string("setting")?.replace('_', ' '), args.string("value")).joinToString(" ")
+
+    override fun endsTurn(args: JsonObject, result: JsonObject) = args.string("setting") != "status" && result.isDone()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val c = ctx.context
@@ -96,8 +100,13 @@ class DeviceSettingTool : Tool {
     private fun volume(c: Context, streamName: String, value: String?): JsonObject {
         val stream = STREAMS[streamName] ?: return ToolResults.error("bad_arguments", "Unknown stream.")
         val a = audio(c)
+        val previous = volumePercent(a, stream)
         try {
-            when (value) {
+            val relative = value?.takeIf { RELATIVE.matches(it) }?.trimEnd('%')?.toInt()
+            if (relative != null) {
+                val target = (previous + relative).coerceIn(0, 100)
+                a.setStreamVolume(stream, (target / 100f * a.getStreamMaxVolume(stream)).roundToInt(), 0)
+            } else when (value) {
                 "up" -> a.adjustStreamVolume(stream, AudioManager.ADJUST_RAISE, 0)
                 "down" -> a.adjustStreamVolume(stream, AudioManager.ADJUST_LOWER, 0)
                 "mute" -> a.adjustStreamVolume(stream, AudioManager.ADJUST_MUTE, 0)
@@ -111,20 +120,21 @@ class DeviceSettingTool : Tool {
         } catch (e: SecurityException) {
             return ToolResults.error("not_allowed", "Changing this volume needs do not disturb access. Ask the user to grant it in Marionette settings.")
         }
-        return ToolResults.ok("stream" to streamName, "volume" to volumePercent(a, stream), "note" to "Volume moves in steps of ${100 / a.getStreamMaxVolume(stream).coerceAtLeast(1)}%, so it may differ slightly from the request.")
+        return ToolResults.ok("stream" to streamName, "volume" to volumePercent(a, stream), "previous" to previous, "note" to "Volume moves in steps of ${100 / a.getStreamMaxVolume(stream).coerceAtLeast(1)}%, so it may differ slightly from the request.")
     }
 
     private fun ringer(c: Context, value: String?): JsonObject {
         val mode = RINGER_NAMES.entries.firstOrNull { it.value == value }?.key ?: return ToolResults.error("bad_arguments", "value must be normal, vibrate or silent.")
         return try {
+            val previous = RINGER_NAMES[audio(c).ringerMode]
             audio(c).ringerMode = mode
-            ToolResults.ok("ringer_mode" to value)
+            ToolResults.ok("ringer_mode" to value, "previous" to previous)
         } catch (e: SecurityException) {
-            ToolResults.error("not_allowed", "Silent mode needs do not disturb access. Ask the user to grant it in Marionette settings.")
+            ToolResults.error("not_allowed", "Silent mode needs do not disturb access. Set ringer_mode vibrate now, and tell the user to grant that access in Marionette settings.")
         }
     }
 
-    private fun dnd(c: Context, value: String?): JsonObject {
+    private suspend fun dnd(c: Context, value: String?): JsonObject {
         val nm = c.getSystemService(NotificationManager::class.java)
         if (!nm.isNotificationPolicyAccessGranted) {
             return ToolResults.error("missing_permission", "Do not disturb access is off. Ask the user to grant it in Marionette settings.")
@@ -136,8 +146,12 @@ class DeviceSettingTool : Tool {
             "off" -> NotificationManager.INTERRUPTION_FILTER_ALL
             else -> return ToolResults.error("bad_arguments", "value must be on, off, priority or alarms.")
         }
+        val previous = DND_NAMES[nm.currentInterruptionFilter]
         nm.setInterruptionFilter(filter)
-        return ToolResults.ok("do_not_disturb" to DND_NAMES[filter])
+        if (filter == NotificationManager.INTERRUPTION_FILTER_ALL && withTimeoutOrNull(DND_SETTLE_MILLIS) { while (nm.currentInterruptionFilter != filter) delay(50) } == null) {
+            return ToolResults.error("user_dnd", "Do not disturb is still on: the user or a schedule turned it on. Tell the user to turn it off in quick settings or Settings > Modes.")
+        }
+        return ToolResults.ok("do_not_disturb" to DND_NAMES[filter], "previous" to previous)
     }
 
     private fun brightness(c: Context, value: String?): JsonObject {
@@ -145,17 +159,21 @@ class DeviceSettingTool : Tool {
             return ToolResults.error("missing_permission", "Changing brightness needs the modify system settings permission. Ask the user to grant it in Marionette settings.")
         }
         val r = c.contentResolver
+        val previous = if (Settings.System.getInt(r, Settings.System.SCREEN_BRIGHTNESS_MODE, 0) == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC) "auto"
+            else (Settings.System.getInt(r, Settings.System.SCREEN_BRIGHTNESS, 128) * 100 / 255).toString()
         if (value == "auto") {
             Settings.System.putInt(r, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC)
-            return ToolResults.ok("brightness" to "auto")
+            return ToolResults.ok("brightness" to "auto", "previous" to previous)
         }
         val percent = value?.trimEnd('%')?.toIntOrNull()?.coerceIn(0, 100) ?: return ToolResults.error("bad_arguments", "value must be 0-100 or auto.")
         Settings.System.putInt(r, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
         Settings.System.putInt(r, Settings.System.SCREEN_BRIGHTNESS, (percent * 255 / 100).coerceAtLeast(1))
-        return ToolResults.ok("brightness" to percent)
+        return ToolResults.ok("brightness" to percent, "previous" to previous)
     }
 
     companion object {
+        private val RELATIVE = Regex("[+-]\\d{1,3}%?")
+        private const val DND_SETTLE_MILLIS = 1_000L
         val STREAMS = linkedMapOf(
             "media" to AudioManager.STREAM_MUSIC,
             "ring" to AudioManager.STREAM_RING,

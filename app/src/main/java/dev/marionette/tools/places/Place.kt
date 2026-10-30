@@ -9,4 +9,5 @@ data class Place(
     val rating: Double? = null,
     val ratingCount: Int? = null,
     val openNow: Boolean? = null,
+    val phone: String? = null,
 )

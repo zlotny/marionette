@@ -56,8 +56,13 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
             intent.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_HIGH_PRECISION)
             intent.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, ArrayList(listOf(primary) + extraLanguages))
         }
-        recognizer.setRecognitionListener(session.listener)
-        recognizer.startListening(intent)
+        try {
+            recognizer.setRecognitionListener(session.listener)
+            recognizer.startListening(intent)
+        } catch (e: Exception) {
+            session.cancel()
+            throw SttException("Speech recognition did not start: ${e.message}")
+        }
         Logger.i("Android STT started (onDevice=$onDevice, language=${language.ifBlank { "default" }}, switch=${extraLanguages.joinToString().ifBlank { "off" }})")
         session
     }
@@ -69,8 +74,9 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
         private val onPartial: (String) -> Unit,
     ) : SttSession {
         private val result = CompletableDeferred<String>()
-        private var latestPartial = ""
+        @Volatile private var latestPartial = ""
         @Volatile private var closed = false
+        @Volatile private var cancelled = false
         private val queue = LinkedBlockingQueue<ByteArray>()
         private val writer = Thread({
             try {
@@ -95,6 +101,7 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
             override fun onPartialResults(partialResults: Bundle?) {
+                if (result.isCompleted || cancelled) return
                 text(partialResults)?.takeIf { it.isNotBlank() }?.let {
                     latestPartial = it
                     onPartial(it)
@@ -107,7 +114,7 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
 
             override fun onError(error: Int) {
                 Logger.w("Android STT error $error")
-                if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || (closed && latestPartial.isNotBlank())) {
                     result.complete(latestPartial)
                 } else if (!result.isCompleted) {
                     result.completeExceptionally(SttException(errorName(error), languageMissing = error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE))
@@ -125,12 +132,16 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
         override suspend fun finish(): String {
             closeAudio()
             main.post { runCatching { recognizer.stopListening() } }
-            val text = withTimeoutOrNull(FINISH_TIMEOUT_MILLIS) { result.await() } ?: latestPartial
-            destroy()
-            return text.trim()
+            try {
+                val text = withTimeoutOrNull(FINISH_TIMEOUT_MILLIS) { result.await() } ?: latestPartial
+                return text.trim()
+            } finally {
+                destroy()
+            }
         }
 
         override fun cancel() {
+            cancelled = true
             closeAudio()
             result.cancel()
             destroy()
@@ -181,7 +192,11 @@ class AndroidSpeechToText(private val context: Context) : SpeechToText {
                     answer.complete(null)
                 }
             })
-            withTimeoutOrNull(SUPPORT_TIMEOUT_MILLIS) { answer.await() }.also { recognizer.destroy() }
+            try {
+                withTimeoutOrNull(SUPPORT_TIMEOUT_MILLIS) { answer.await() }
+            } finally {
+                recognizer.destroy()
+            }
         }
 
         private fun languageIntent(language: String) = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)

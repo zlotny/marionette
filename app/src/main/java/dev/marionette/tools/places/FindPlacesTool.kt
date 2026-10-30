@@ -8,8 +8,12 @@ import dev.marionette.tools.ToolCategory
 import dev.marionette.tools.ToolContext
 import dev.marionette.tools.ToolResults
 import dev.marionette.tools.schema
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import java.net.UnknownHostException
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -23,7 +27,7 @@ class FindPlacesTool(
     override val category = ToolCategory.PLACES
     override val description =
         "Find places near the user or near a named place. Use for 'the nearest X', 'a gas station', 'McDonald's near Toledo', addresses. " +
-            "Returns places sorted by distance from the search center, with coordinates for navigate. " +
+            "Returns places sorted by distance from the search center, with coordinates for navigate and a phone number when known. " +
             "With a Google Places key, results also include rating, rating_count and open_now."
     override val parameters = schema {
         string("query", "Name, brand, cuisine or diet to match, e.g. \"McDonald's\", \"Repsol\", \"sushi\", \"vegan\", or a full address. Cuisine and diet match one English word. Omit when only a category is wanted.")
@@ -49,25 +53,34 @@ class FindPlacesTool(
         val here = ctx.device.location()?.let { LatLng(it.latitude, it.longitude) }
         val center = if (nearText != null) {
             nominatim.search(nearText, here, 1, language).firstOrNull()?.location
-                ?: return ToolResults.error("unknown_place", "Could not find \"$nearText\".")
+                ?: return ToolResults.error("unknown_place", "Could not find \"$nearText\". Pass the town name, or town and region.")
         } else {
-            here ?: return ToolResults.error("no_location", "The current location is not available.")
+            here ?: return ToolResults.error("no_location", "The current location is not available. Pass near with a town or address, or ask where the user is.")
         }
 
         val searchText = listOfNotNull(query, category?.key?.replace('_', ' ')).joinToString(" ")
-        val (places, source) = when {
-            ctx.settings.googlePlacesKey.isNotBlank() ->
-                GooglePlacesClient(ctx.settings.googlePlacesKey).search(searchText, center, radius, limit, language) to "google_places"
-            else -> searchOsm(center, radius, query, category, language) to "openstreetmap"
-        }
+        val (places, source) = withTimeoutOrNull(SEARCH_BUDGET_MILLIS) {
+            when {
+                ctx.settings.googlePlacesKey.isNotBlank() -> runCatching {
+                    GooglePlacesClient(ctx.settings.googlePlacesKey).search(searchText, center, radius, limit, language) to "google_places"
+                }.getOrElse { e ->
+                    if (e is kotlinx.coroutines.CancellationException || e is UnknownHostException) throw e
+                    Logger.w("Google Places failed, using OpenStreetMap", e)
+                    searchOsm(center, radius, query, category, language) to "openstreetmap"
+                }
+                else -> searchOsm(center, radius, query, category, language) to "openstreetmap"
+            }
+        } ?: return ToolResults.error("timeout", "The place search took too long. Try again.")
         val ranked = places
             .map { it to Geo.distanceMeters(center, it.location) }
             .sortedBy { it.second }
             .take(limit)
-        if (ranked.isEmpty()) return ToolResults.ok("places" to emptyList<Any>(), "message" to "No places found within ${MAX_RADIUS_M / 1000} km.")
+        if (ranked.isEmpty()) {
+            return ToolResults.ok("places" to emptyList<Any>(), "message" to "No places within ${MAX_RADIUS_M / 1000} km. Try a category, or one English word for a cuisine.")
+        }
+        Logger.i("Places from $source")
         return ToolResults.ok(
-            "origin" to (if (nearText != null) nearText else "current_location"),
-            "source" to source,
+            "near" to nearText,
             "places" to ranked.map { (place, distance) ->
                 mapOf(
                     "name" to place.name,
@@ -80,6 +93,7 @@ class FindPlacesTool(
                     "open_now" to place.openNow,
                     "rating" to place.rating,
                     "rating_count" to place.ratingCount,
+                    "phone" to place.phone,
                 ).filterValues { it != null }
             },
         )
@@ -101,7 +115,11 @@ class FindPlacesTool(
         }
         return attempts.firstNotNullOfOrNull { attempt ->
             runCatching { attempt() }
-                .onFailure { Logger.w("Place search source failed: ${it.message}") }
+                .onFailure {
+                    currentCoroutineContext().ensureActive()
+                    if (it is UnknownHostException) throw it
+                    Logger.w("Place search source failed: ${it.message}")
+                }
                 .getOrNull()
                 ?.filter { Geo.distanceMeters(center, it.location) <= MAX_RADIUS_M }
                 ?.takeIf { it.isNotEmpty() }
@@ -122,5 +140,6 @@ class FindPlacesTool(
         private const val MAX_RADIUS_M = 50_000
         private const val DEFAULT_LIMIT = 5
         private const val OVERPASS_TIMEOUT_MILLIS = 8_000L
+        private const val SEARCH_BUDGET_MILLIS = 12_000L
     }
 }

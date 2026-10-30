@@ -11,8 +11,11 @@ import androidx.core.content.ContextCompat
 import dev.marionette.assist.AssistantSession
 import dev.marionette.assist.MarionetteVoiceInteractionService
 import dev.marionette.core.Logger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 enum class LaunchStatus { STARTED, WAITING_FOR_UNLOCK, FAILED }
 
@@ -23,13 +26,14 @@ class Launcher(private val context: Context, private val isKeyguardShowing: () -
 
     private class PendingLaunch(val intent: Intent?, val label: String, val result: CompletableDeferred<LaunchStatus>)
 
-    suspend fun launch(intent: Intent, label: String, unlock: Boolean = true): LaunchStatus {
+    suspend fun launch(intent: Intent, label: String, unlock: Boolean = true): LaunchStatus = withContext(Dispatchers.Main.immediate) {
         val target = Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (!unlock || !isKeyguardShowing()) return start(target, label)
-        return dismissKeyguardThen(target, label)
+        if (!unlock || !isKeyguardShowing()) start(target, label) else dismissKeyguardThen(target, label)
     }
 
-    suspend fun dismissKeyguard(): Boolean {
+    suspend fun dismissKeyguard(): Boolean = withContext(Dispatchers.Main.immediate) { dismissKeyguardOnMain() }
+
+    private suspend fun dismissKeyguardOnMain(): Boolean {
         if (!isKeyguardShowing()) return true
         val status = dismissKeyguardThen(null, "keyguard dismiss")
         if (status != LaunchStatus.STARTED && pending?.intent == null) clearPending()
@@ -37,6 +41,9 @@ class Launcher(private val context: Context, private val isKeyguardShowing: () -
     }
 
     private suspend fun dismissKeyguardThen(target: Intent?, label: String): LaunchStatus {
+        pending?.takeIf { target == null && it.intent == null }?.let { running ->
+            return withTimeoutOrNull(DISMISS_TIMEOUT_MILLIS) { running.result.await() } ?: LaunchStatus.WAITING_FOR_UNLOCK
+        }
         val launch = PendingLaunch(target, label, CompletableDeferred())
         pending?.result?.complete(LaunchStatus.FAILED)
         pending = launch
@@ -52,7 +59,12 @@ class Launcher(private val context: Context, private val isKeyguardShowing: () -
             runCatching { vis.showSession(Bundle().apply { putBoolean(EXTRA_LAUNCH, true) }, 0) }
                 .onFailure { Logger.w("showSession for launch failed", it) }
         }
-        return withTimeoutOrNull(DISMISS_TIMEOUT_MILLIS) { launch.result.await() } ?: LaunchStatus.WAITING_FOR_UNLOCK
+        return try {
+            withTimeoutOrNull(DISMISS_TIMEOUT_MILLIS) { launch.result.await() } ?: LaunchStatus.WAITING_FOR_UNLOCK
+        } catch (e: CancellationException) {
+            if (pending === launch) clearPending()
+            throw e
+        }
     }
 
     fun onKeyguardDismissed(activity: Context) {
@@ -71,6 +83,7 @@ class Launcher(private val context: Context, private val isKeyguardShowing: () -
         if (intent != null) AssistantSession.hideShown()
         intent?.let(from::startActivity)
         Logger.i("Launched $label")
+        Logger.ux("launch", label)
         LaunchStatus.STARTED
     }.getOrElse {
         Logger.w("Launch $label failed", it)

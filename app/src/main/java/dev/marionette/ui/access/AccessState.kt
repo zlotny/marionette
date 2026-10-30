@@ -24,6 +24,8 @@ class AccessState internal constructor(private val context: Context) {
     private var version by mutableIntStateOf(0)
     internal var launch: (Access) -> Unit = {}
 
+    val stamp: Int get() = version
+
     fun refresh() {
         version++
     }
@@ -34,6 +36,13 @@ class AccessState internal constructor(private val context: Context) {
     }
 
     fun isReady(access: Access): Boolean = access.requires?.let(::isGranted) ?: true
+
+    fun isBlocked(access: Access): Boolean {
+        version
+        if (access.kind != AccessKind.RUNTIME || access.isGranted(context)) return false
+        val activity = context as? Activity ?: return false
+        return context.getSharedPreferences("access", Context.MODE_PRIVATE).getBoolean("asked_${access.name}", false) && !canAsk(activity, access)
+    }
 
     fun request(access: Access) = launch(access)
 

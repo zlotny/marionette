@@ -11,6 +11,8 @@ import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextDirection
 import dev.marionette.ui.agentName
 import dev.marionette.agent.ContextBlock
 import dev.marionette.settings.ContextField
@@ -49,6 +56,8 @@ private val ContextField.presentation: FieldPresentation
         ContextField.BATTERY -> FieldPresentation(Icons.Rounded.BatteryStd, R.string.context_battery, R.string.context_battery_body)
         ContextField.AUDIO -> FieldPresentation(Icons.Rounded.Headphones, R.string.context_audio, R.string.context_audio_body)
         ContextField.SCREEN -> FieldPresentation(Icons.Rounded.PhoneAndroid, R.string.context_screen, R.string.context_screen_body)
+        ContextField.NETWORK -> FieldPresentation(Icons.Rounded.Wifi, R.string.context_network, R.string.context_network_body)
+        ContextField.ACTIVITY -> FieldPresentation(Icons.Rounded.Timer, R.string.context_activity, R.string.context_activity_body)
     }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -91,20 +100,20 @@ fun ContextScreen(onBack: () -> Unit) {
                     stringResource(R.string.context_preview, agentName()),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, top = 8.dp),
+                    modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, top = 8.dp).semantics { heading() },
                 )
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = MaterialTheme.shapes.large,
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     val text = preview
                     if (text == null) {
-                        LoadingIndicator(Modifier.padding(16.dp))
+                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { LoadingIndicator() }
                     } else {
                         Text(
                             text,
-                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, textDirection = TextDirection.Ltr),
                             modifier = Modifier.padding(16.dp),
                         )
                     }

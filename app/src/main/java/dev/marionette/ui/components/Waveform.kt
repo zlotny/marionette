@@ -22,12 +22,14 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun Waveform(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary, bars: Int = 5) {
     val energy by rememberMicEnergy(10f, spring(dampingRatio = 0.55f, stiffness = 400f), floor = 0.08f)
+    val motion = LocalMotion.current
     val transition = rememberInfiniteTransition(label = "waveIdle")
-    val phase by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "phase")
+    val wave = transition.animateFloat(0f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "phase")
     Canvas(modifier.size(width = 36.dp, height = 24.dp)) {
         val gap = size.width / (bars * 2 - 1)
         repeat(bars) { i ->
             val shape = listOf(0.45f, 0.8f, 1f, 0.75f, 0.5f)[i % 5]
+            val phase = if (motion.ambient) wave.value else 0.5f
             val wobble = if (i % 2 == 0) phase else 1 - phase
             val h = (size.height * shape * (0.25f + 0.75f * energy) * (0.8f + 0.2f * wobble)).coerceAtLeast(gap)
             drawRoundRect(

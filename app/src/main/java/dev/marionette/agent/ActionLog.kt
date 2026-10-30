@@ -2,7 +2,9 @@ package dev.marionette.agent
 
 import android.content.Context
 import dev.marionette.core.AppJson
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,10 +25,18 @@ data class ActionEntry(
 
 class ActionLog(context: Context) {
     private val file = File(context.filesDir, "action-log.jsonl")
-    private val _entries = MutableStateFlow(load())
+    private val _entries = MutableStateFlow<List<ActionEntry>>(emptyList())
     val entries: StateFlow<List<ActionEntry>> = _entries.asStateFlow()
 
-    suspend fun append(entry: ActionEntry) = withContext(Dispatchers.IO) {
+    init {
+        CoroutineScope(io).launch {
+            val loaded = load()
+            _entries.update { current -> (current + loaded).take(MAX_ENTRIES) }
+        }
+    }
+
+    suspend fun append(full: ActionEntry) = withContext(io) {
+        val entry = full.copy(arguments = full.arguments.take(MAX_FIELD_CHARS), result = full.result.take(MAX_FIELD_CHARS))
         file.appendText(AppJson.encodeToString(ActionEntry.serializer(), entry) + "\n")
         _entries.update { (listOf(entry) + it).take(MAX_ENTRIES) }
         if (file.length() > MAX_FILE_BYTES) {
@@ -34,7 +44,7 @@ class ActionLog(context: Context) {
         }
     }
 
-    suspend fun clear() = withContext(Dispatchers.IO) {
+    suspend fun clear() = withContext(io) {
         file.delete()
         _entries.value = emptyList()
     }
@@ -47,7 +57,9 @@ class ActionLog(context: Context) {
     }.getOrDefault(emptyList())
 
     companion object {
+        private val io = Dispatchers.IO.limitedParallelism(1)
         private const val MAX_ENTRIES = 300
         private const val MAX_FILE_BYTES = 512 * 1024
+        private const val MAX_FIELD_CHARS = 4_000
     }
 }

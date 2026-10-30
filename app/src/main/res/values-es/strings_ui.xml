@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="step_running">En curso</string>
+    <string name="step_done">Hecho</string>
+    <string name="step_failed">Falló</string>
+    <string name="step_declined">Rechazado</string>
+    <string name="action_show_secret">Mostrar</string>
+    <string name="action_hide_secret">Ocultar</string>
+    <string name="attachment_image">Imagen</string>
+    <string name="action_open">Abrir</string>
+    <string name="state_expanded">Desplegado</string>
+    <string name="state_collapsed">Plegado</string>
+    <string name="home_jump_latest">Ir al último mensaje</string>
+    <string name="access_blocked">Bloqueado. Toca Abrir ajustes y permítelo en Permisos.</string>
+    <string name="access_open_settings">Abrir ajustes</string>
+    <string name="access_restricted_hint">¿Aparece en gris? Abre Información de la app, toca ⋮, elige Permitir ajustes restringidos y vuelve aquí.</string>
+    <string name="wake_phrase_default">Oye %1$s</string>
+    <string name="wake_phrase_helper">Usa de 2 a 4 palabras que no digas a menudo.</string>
+    <string name="backend_more_options">Más opciones</string>
+    <string name="backend_model_needed">Elige un modelo para continuar.</string>
+</resources>

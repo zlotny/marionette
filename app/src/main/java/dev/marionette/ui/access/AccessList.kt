@@ -1,5 +1,9 @@
 package dev.marionette.ui.access
 
+import dev.marionette.ui.components.SettingsNote
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Assistant
@@ -64,10 +68,13 @@ val Access.presentation: AccessPresentation
 @Composable
 fun AccessList(title: String?, accesses: List<Access>, state: AccessState, modifier: Modifier = Modifier) {
     if (accesses.isEmpty()) return
-    SettingsGroup(title, modifier) {
-        accesses.forEach { access ->
-            item { i, n -> AccessRow(i, n, access, state) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SettingsGroup(title) {
+            accesses.forEach { access ->
+                item { i, n -> AccessRow(i, n, access, state) }
+            }
         }
+        if (accesses.any { it in RESTRICTED && !state.isGranted(it) }) SettingsNote(stringResource(R.string.access_restricted_hint))
     }
 }
 
@@ -77,10 +84,11 @@ private fun AccessRow(index: Int, count: Int, access: Access, state: AccessState
     val granted = state.isGranted(access)
     val ready = state.isReady(access)
     val colors = MaterialTheme.colorScheme
-    val supporting = if (!ready) {
-        stringResource(R.string.access_requires, stringResource(access.requires!!.presentation.title))
-    } else {
-        stringResource(p.body, agentName())
+    val blocked = state.isBlocked(access)
+    val supporting = when {
+        !ready -> stringResource(R.string.access_requires, stringResource(access.requires!!.presentation.title))
+        blocked -> stringResource(R.string.access_blocked)
+        else -> stringResource(p.body, agentName())
     }
     SettingsRow(
         index, count,
@@ -93,8 +101,16 @@ private fun AccessRow(index: Int, count: Int, access: Access, state: AccessState
             if (granted) {
                 Icon(Icons.Rounded.CheckCircle, stringResource(R.string.access_granted), tint = colors.primary)
             } else {
-                FilledTonalButton(onClick = { state.request(access) }, enabled = ready) {
-                    Text(stringResource(if (access.kind == AccessKind.RUNTIME) R.string.access_allow else R.string.access_open))
+                FilledTonalButton(onClick = { if (blocked) state.openSettings(access) else state.request(access) }, enabled = ready) {
+                    Text(
+                        stringResource(
+                            when {
+                                blocked -> R.string.access_open_settings
+                                access.kind == AccessKind.RUNTIME -> R.string.access_allow
+                                else -> R.string.access_open
+                            },
+                        ),
+                    )
                 }
             }
         },
@@ -102,3 +118,5 @@ private fun AccessRow(index: Int, count: Int, access: Access, state: AccessState
         onClick = { if (granted) state.openSettings(access) else state.request(access) },
     )
 }
+
+private val RESTRICTED = setOf(Access.NOTIFICATION_ACCESS, Access.SCREEN_CONTROL, Access.SMS, Access.CALL_LOG)

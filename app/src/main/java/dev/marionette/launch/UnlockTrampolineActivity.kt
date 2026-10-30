@@ -12,7 +12,18 @@ class UnlockTrampolineActivity : Activity() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         val launcher = MarionetteApp.graph.launcher
-        getSystemService(KeyguardManager::class.java).requestDismissKeyguard(
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        if (keyguard.isDeviceLocked) {
+            window.decorView.postDelayed({ dismiss(keyguard, launcher) }, TRUST_SETTLE_MILLIS)
+        } else {
+            dismiss(keyguard, launcher)
+        }
+    }
+
+    private fun dismiss(keyguard: KeyguardManager, launcher: Launcher) {
+        if (isFinishing) return
+        Logger.i("Keyguard dismiss (device locked: ${keyguard.isDeviceLocked})")
+        keyguard.requestDismissKeyguard(
             this,
             object : KeyguardManager.KeyguardDismissCallback() {
                 override fun onDismissSucceeded() {
@@ -34,5 +45,9 @@ class UnlockTrampolineActivity : Activity() {
                 }
             },
         )
+    }
+
+    private companion object {
+        const val TRUST_SETTLE_MILLIS = 700L
     }
 }

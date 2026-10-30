@@ -4,12 +4,18 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.res.AssetManager
+import dev.marionette.core.Logger
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.sqrt
 
 class SpeechEmbedder(assets: AssetManager) : AutoCloseable {
     private val env = OrtEnvironment.getEnvironment()
-    private val options = OrtSession.SessionOptions().apply { setIntraOpNumThreads(1) }
+    private val options = OrtSession.SessionOptions().apply {
+        setIntraOpNumThreads(1)
+        runCatching { addXnnpack(mapOf("intra_op_num_threads" to "1")) }.onFailure { Logger.w("XNNPACK unavailable", it) }
+    }
     private val melSession = env.createSession(assets.open("oww/melspectrogram.onnx").readBytes(), options)
     private val embeddingSession = env.createSession(assets.open("oww/embedding_model.onnx").readBytes(), options)
 
@@ -34,6 +40,22 @@ class SpeechEmbedder(assets: AssetManager) : AutoCloseable {
             embeddingSession.run(mapOf("input_1" to input)).use { result ->
                 val buffer = (result[0] as OnnxTensor).floatBuffer
                 return List(windows.size) { normalize(FloatArray(DIM) { buffer.get() }) }
+            }
+        }
+    }
+
+    private val window = ByteBuffer.allocateDirect(WINDOW * MEL_BINS * Float.SIZE_BYTES).order(ByteOrder.nativeOrder()).asFloatBuffer()
+    private val windowShape = longArrayOf(1, WINDOW.toLong(), MEL_BINS.toLong(), 1)
+
+    @Synchronized
+    fun embedWindow(frames: Collection<FloatArray>): FloatArray {
+        window.clear()
+        frames.forEach { window.put(it) }
+        window.rewind()
+        OnnxTensor.createTensor(env, window, windowShape).use { input ->
+            embeddingSession.run(mapOf("input_1" to input)).use { result ->
+                val buffer = (result[0] as OnnxTensor).floatBuffer
+                return normalize(FloatArray(DIM) { buffer.get() })
             }
         }
     }

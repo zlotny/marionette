@@ -12,6 +12,12 @@ import android.content.res.Resources
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
+import android.net.NetworkCapabilities
+import android.net.Network
+import android.net.ConnectivityManager
+import dev.marionette.agent.Delivery
+import dev.marionette.audio.AudioRoute
+import dev.marionette.audio.Port
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.os.Bundle
@@ -33,11 +39,13 @@ import dev.marionette.agent.TurnStatus
 import dev.marionette.assist.AssistantSession
 import dev.marionette.assist.MarionetteVoiceInteractionService
 import dev.marionette.core.Http
+import dev.marionette.core.LinkSpeed
 import dev.marionette.core.Logger
 import dev.marionette.settings.Credential
 import dev.marionette.settings.SttEngine
 import dev.marionette.ui.MainActivity
 import dev.marionette.voice.stt.AndroidSpeechToText
+import dev.marionette.voice.stt.FallbackSpeechToText
 import dev.marionette.voice.stt.JunkTranscript
 import dev.marionette.voice.stt.OpenAiSpeechToText
 import dev.marionette.voice.stt.SpeechToText
@@ -54,14 +62,19 @@ import dev.marionette.voice.wake.WakeSpeech
 import dev.marionette.voice.wake.WakeTemplates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
@@ -75,6 +88,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.time.LocalTime
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.io.IOException
 import java.util.concurrent.Executors
 import kotlin.math.sqrt
 
@@ -90,7 +104,8 @@ class VoiceService : LifecycleService() {
     private val hits by lazy { WakeHitRecorder(WakeHitRecorder.dir(this)) }
     private val falseWakes by lazy { FalseWakes(this) }
     private val stopPhrases by lazy { StopPhrases(this) }
-    private val speaker by lazy { Speaker(this) }
+    private val speaker by lazy { Speaker(this, graph.audioRoutes) }
+    private val cues by lazy { CueChannel(this, graph.scope) }
     private val audio by lazy { getSystemService(AudioManager::class.java) }
 
     private val micExecutor = Executors.newSingleThreadExecutor { Thread(it, "mic") }
@@ -111,8 +126,38 @@ class VoiceService : LifecycleService() {
     @Volatile private var detector: AcousticWakeDetector? = null
     private var pendingWake: Job? = null
     @Volatile private var commandSink: CommandSink? = null
+    @Volatile private var record: AudioRecord? = null
+    @Volatile private var requestMic: (() -> Unit)? = null
+    @Volatile private var slowNoticeGiven = false
+    private class Resend(val text: String?, val audio: ShortArray?, val at: Long, val attempts: Int = 0)
+    @Volatile private var resending = false
+    @Volatile private var failedAudio: ShortArray? = null
+    @Volatile private var warmOnSpeech = false
+    @Volatile private var latestPartial = ""
+    @Volatile private var confirming = false
+    @Volatile private var resend: Resend? = null
+    private var resendJob: Job? = null
+    private val resendSignal = Channel<Unit>(Channel.CONFLATED)
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        private var validated = true
+        private var current: Network? = null
+
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            val now = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            if (now && current != null && network != current) Http.dropConnections()
+            if (now) current = network
+            if (now && !validated && resend != null) resendSignal.trySend(Unit)
+            validated = now
+        }
+
+        override fun onLost(network: Network) {
+            validated = false
+            if (network == current) Http.cancelAgentCalls()
+            Http.dropConnections()
+        }
+    }
     private var embedder: SpeechEmbedder? = null
-    private var vad: Vad? = null
+    @Volatile private var vad: Vad? = null
     private var captureJob: Job? = null
     private var commandJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -129,7 +174,12 @@ class VoiceService : LifecycleService() {
     private class CommandSink(
         val session: SttSession,
         val noSpeechMillis: Long,
+        val beepMillis: Long = 0,
+        val quickAnswer: Boolean = false,
         val endpoint: CompletableDeferred<Endpoint> = CompletableDeferred(),
+        val resumed: CompletableDeferred<Unit> = CompletableDeferred(),
+        @Volatile var inGrace: Boolean = false,
+        var resumedSpeechMillis: Long = 0,
         var speechStarted: Boolean = false,
         var silenceMillis: Long = 0,
         var elapsedMillis: Long = 0,
@@ -140,18 +190,28 @@ class VoiceService : LifecycleService() {
         running = true
         speaker.warmUp()
         graph.confirmations.voiceHandler = ::confirmByVoice
-        lifecycleScope.launch {
+        lifecycleScope.launch(guard) {
             VoiceBus.status.map { it.phase }.distinctUntilChanged().collect { updateNotification() }
         }
-        lifecycleScope.launch {
+        lifecycleScope.launch(guard) {
             graph.settings.settings.map { listOf(it.listeningPaused, it.notificationTalk, it.quietHours, it.quietStart, it.quietEnd) }.distinctUntilChanged().collect {
                 micDemand.trySend(Unit)
                 updateNotification()
             }
         }
-        lifecycleScope.launch {
+        lifecycleScope.launch(guard) {
             graph.settings.settings.map { Triple(it.language, it.sttEngine, it.sttCloud) }.distinctUntilChanged().collect { checkSpeechLanguage() }
         }
+        runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback) }
+        lifecycleScope.launch(guard) {
+            combine(graph.audioRoutes.devices, graph.audioRoutes.connected) { _, _ -> }.collect { if (mode == Mode.WAKE) useMic(graph.audioRoutes.route().wakeInput) }
+        }
+    }
+
+    private fun useMic(port: Port?) {
+        val current = record ?: return
+        current.setPreferredDevice(graph.audioRoutes.info(port))
+        VoiceBus.update { it.copy(inputDevice = (current.preferredDevice ?: current.routedDevice)?.productName?.toString()) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -201,13 +261,18 @@ class VoiceService : LifecycleService() {
         wakeTests = 0
         stopTests = 0
         graph.confirmations.voiceHandler = null
+        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
+        resendJob?.cancel()
         commandJob?.cancel()
         captureJob?.cancel()
         commandSink?.session?.cancel()
+        cues.closeNow()
         speaker.shutdown()
-        embedder?.close()
-        vad?.close()
-        micExecutor.execute { pace.close() }
+        val sessions = listOfNotNull(embedder, vad)
+        micExecutor.execute {
+            sessions.forEach { runCatching { it.close() } }
+            pace.close()
+        }
         micExecutor.shutdown()
         hits.close()
         wakeLock?.takeIf { it.isHeld }?.release()
@@ -231,7 +296,7 @@ class VoiceService : LifecycleService() {
             stopSelf()
             return
         }
-        captureJob = lifecycleScope.launch(micDispatcher) {
+        captureJob = lifecycleScope.launch(micDispatcher + guard) {
             pace.attach()
             reloadDetectorNow()
             VoiceBus.update { it.copy(lastError = null) }
@@ -251,10 +316,27 @@ class VoiceService : LifecycleService() {
                     val idle = it.phase == VoicePhase.OFF || it.phase == VoicePhase.PAUSED
                     it.copy(phase = if (mode == Mode.ENROLL) VoicePhase.ENROLLING else if (idle) VoicePhase.WAITING else it.phase)
                 }
-                if (!capture()) break
+                val captured = try {
+                    capture()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Logger.e("Microphone capture failed", e)
+                    false
+                }
+                if (captured) {
+                    micRetryMillis = MIC_RETRY_MIN_MILLIS
+                } else {
+                    Logger.w("Microphone unavailable, retrying in $micRetryMillis ms")
+                    delay(micRetryMillis)
+                    micRetryMillis = (micRetryMillis * 2).coerceAtMost(MIC_RETRY_MAX_MILLIS)
+                }
             }
         }
     }
+
+    private var micRetryMillis = MIC_RETRY_MIN_MILLIS
+    private val guard = CoroutineExceptionHandler { _, e -> Logger.e("Voice service task failed", e) }
 
     private fun idlePaused(): Boolean =
         (graph.settings.current.listeningPaused || quietNow()) && mode == Mode.WAKE && commandJob?.isActive != true && wakeTests == 0 && stopTests == 0
@@ -285,16 +367,17 @@ class VoiceService : LifecycleService() {
 
     private fun setPaused(paused: Boolean) {
         Logger.i("Listening ${if (paused) "paused" else "resumed"} from the notification")
-        lifecycleScope.launch { graph.settings.update { it.copy(listeningPaused = paused) } }
+        lifecycleScope.launch(guard) { graph.settings.update { it.copy(listeningPaused = paused) } }
     }
 
     private fun reloadDetector() {
-        lifecycleScope.launch(Dispatchers.IO) { reloadDetectorNow() }
+        lifecycleScope.launch(Dispatchers.IO + guard) { reloadDetectorNow() }
     }
 
     private suspend fun reloadDetectorNow() = detectorLock.withLock {
         val settings = graph.settings.current
         val loaded = templates.load()
+        if (vad == null) vad = runCatching { Vad(assets) }.onFailure { Logger.e("VAD load failed", it) }.getOrNull()
         val embedder = embedder ?: runCatching { SpeechEmbedder(assets) }.onFailure { Logger.e("Embedder load failed", it) }.getOrNull()
         this.embedder = embedder
         val wake = if (settings.wakeEnabled) loaded else emptyList()
@@ -311,7 +394,7 @@ class VoiceService : LifecycleService() {
         Logger.i("Wake detector: ${loaded.size} templates, $usable usable, speech ${talk.size}, min level $minLevel dBFS, armed=$armed, stop templates ${stops.size}")
     }
 
-    private fun inCall(): Boolean = audio.mode in CALL_MODES
+    private fun inCall(): Boolean = audio.mode in RINGING_MODES || (requestMic == null && audio.mode in CALL_MODES)
 
     @SuppressLint("MissingPermission")
     private suspend fun capture(): Boolean {
@@ -321,7 +404,7 @@ class VoiceService : LifecycleService() {
             AudioSpec.SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(minBuffer, AudioSpec.CHUNK_SAMPLES * 2 * 8),
+            maxOf(minBuffer, AudioSpec.SAMPLE_RATE * 2 * RECORD_BUFFER_SECONDS),
         )
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
@@ -338,11 +421,17 @@ class VoiceService : LifecycleService() {
         Logger.i("Echo canceller: available=${AcousticEchoCanceler.isAvailable()}, attached=${echo != null}")
         var echoOn = false
         record.startRecording()
-        VoiceBus.update { it.copy(inputDevice = record.routedDevice?.productName?.toString()) }
+        detector?.reset()
+        this.record = record
+        useMic(graph.audioRoutes.route().wakeInput)
         try {
             while (kotlin.coroutines.coroutineContext.isActive) {
                 val n = record.read(pcm, 0, pcm.size)
-                if (n <= 0) continue
+                if (n < 0) {
+                    Logger.w("Microphone read failed ($n), reopening")
+                    return false
+                }
+                if (n == 0) continue
                 if (idlePaused()) return true
                 val workStart = System.nanoTime()
                 if (BuildConfig.DEBUG) {
@@ -356,8 +445,9 @@ class VoiceService : LifecycleService() {
                     sum += s * s
                 }
                 val chunk = if (n == samples.size) samples else samples.copyOf(n)
-                val leveling = mode == Mode.COMMAND && graph.settings.current.levelVoice
-                if (mode == Mode.WAKE || mode == Mode.COMMAND) leveler.process(chunk, n, if (leveling) leveled else null)
+                val levelVoice = graph.settings.current.levelVoice
+                val leveling = mode == Mode.COMMAND && levelVoice
+                if (levelVoice && mode == Mode.WAKE || leveling) leveler.process(chunk, n, if (leveling) leveled else null)
                 val now = System.currentTimeMillis()
                 if (now - lastCallCheck > CALL_POLL_MILLIS) {
                     lastCallCheck = now
@@ -368,7 +458,11 @@ class VoiceService : LifecycleService() {
                         return true
                     }
                 }
-                val busy = mode != Mode.WAKE || graph.agent.busy.value
+                val busy = when (mode) {
+                    Mode.WAKE -> graph.agent.busy.value
+                    Mode.ENROLL -> enrollStop != null
+                    else -> true
+                }
                 if (echo != null && busy != echoOn) {
                     echoOn = busy
                     runCatching { echo.enabled = busy }.onFailure { Logger.w("Echo canceller toggle failed", it) }
@@ -408,8 +502,9 @@ class VoiceService : LifecycleService() {
                 pace.report(System.nanoTime() - workStart, n)
             }
         } finally {
+            this.record = null
             echo?.release()
-            record.stop()
+            runCatching { record.stop() }
             record.release()
         }
         return false
@@ -418,39 +513,58 @@ class VoiceService : LifecycleService() {
     private fun onWakeWord(score: Float, now: Long, deferred: Boolean) {
         Logger.i("Wake word detected (score $score)")
         if (stopTests > 0) return
-        VoiceBus.update { it.copy(lastWakeAt = now) }
-        if (wakeTests > 0) {
-            lifecycleScope.launch { playEarcon(Earcon.DONE) }
+        if (speaker.spokePhrase(StopText.words(graph.settings.current.wakePhrase).toSet())) {
+            Logger.i("Wake ignored: the agent just said the wake phrase")
             return
         }
-        pendingWake?.cancel()
-        pendingWake = lifecycleScope.launch {
-            if (deferred) delay(STOP_GRACE_MILLIS)
-            trigger(TriggerSource.WAKE_WORD)
+        VoiceBus.update { it.copy(lastWakeAt = now) }
+        if (wakeTests > 0) {
+            lifecycleScope.launch(guard) { playEarcon(Earcon.DONE) }
+            return
+        }
+        lifecycleScope.launch(guard) {
+            pendingWake?.cancel()
+            pendingWake = lifecycleScope.launch(guard) {
+                if (deferred) delay(STOP_GRACE_MILLIS)
+                trigger(TriggerSource.WAKE_WORD)
+            }
         }
     }
 
     private fun onStopPhrase(now: Long, working: Boolean) {
         Logger.i("Stop phrase detected, working=$working")
         VoiceBus.update { it.copy(lastStopAt = now) }
-        pendingWake?.cancel()
-        if (working) {
-            cancelCommand()
-            AssistantSession.hideShown()
+        lifecycleScope.launch(guard) {
+            pendingWake?.cancel()
+            dropResend()
+            if (working) {
+                cancelCommand()
+                AssistantSession.hideShown()
+            }
+            playEarcon(if (working) Earcon.ERROR else Earcon.DONE)
         }
-        lifecycleScope.launch { playEarcon(if (working) Earcon.ERROR else Earcon.DONE) }
     }
 
     private fun feedCommand(sink: CommandSink, pcm: ShortArray, n: Int, chunk: FloatArray) {
-        if (sink.endpoint.isCompleted) return
+        if (sink.endpoint.isCompleted && !sink.inGrace) return
         sink.session.accept(pcm, n)
         val vad = vad ?: runCatching { Vad(assets) }.onFailure { Logger.e("VAD load failed", it) }.getOrNull()?.also { vad = it }
-        val probability = vad?.accept(chunk) ?: energyProbability(chunk)
+        val detected = vad?.accept(chunk) ?: energyProbability(chunk)
         val chunkMillis = n * 1000L / AudioSpec.SAMPLE_RATE
+        val probability = if (sink.elapsedMillis < sink.beepMillis) (SILENCE_PROBABILITY + SPEECH_PROBABILITY) / 2 else detected
+        if (sink.endpoint.isCompleted) {
+            sink.resumedSpeechMillis = if (probability >= SPEECH_PROBABILITY) sink.resumedSpeechMillis + chunkMillis else 0
+            if (sink.resumedSpeechMillis >= RESUME_SPEECH_MILLIS) sink.resumed.complete(Unit)
+            return
+        }
         sink.elapsedMillis += chunkMillis
         val silenceLimit = graph.settings.current.silenceMillis.toLong()
         if (probability >= SILENCE_PROBABILITY && sink.silenceMillis >= SPECULATE_MILLIS) sink.session.dropSpeculation()
         if (probability >= SPEECH_PROBABILITY) {
+            if (warmOnSpeech) {
+                warmOnSpeech = false
+                lifecycleScope.launch(guard) { graph.agent.warmUp() }
+            }
             sink.speechStarted = true
             sink.silenceMillis = 0
         } else if (sink.speechStarted && probability < SILENCE_PROBABILITY) {
@@ -459,10 +573,14 @@ class VoiceService : LifecycleService() {
         }
         when {
             sink.speechStarted && sink.silenceMillis >= silenceLimit -> sink.endpoint.complete(Endpoint.SPEECH_END)
+            sink.quickAnswer && sink.speechStarted && sink.silenceMillis >= QUICK_ANSWER_SILENCE_MILLIS && isBareAnswer(latestPartial) ->
+                sink.endpoint.complete(Endpoint.SPEECH_END)
             !sink.speechStarted && sink.elapsedMillis >= sink.noSpeechMillis -> sink.endpoint.complete(Endpoint.NO_SPEECH)
             sink.elapsedMillis >= MAX_COMMAND_MILLIS -> sink.endpoint.complete(Endpoint.MAX_LENGTH)
         }
     }
+
+    private fun isBareAnswer(text: String): Boolean = YesNo.parse(text) == true && YesNo.isBare(text)
 
     private fun energyProbability(chunk: FloatArray): Float {
         var sum = 0.0
@@ -480,28 +598,32 @@ class VoiceService : LifecycleService() {
         VoiceBus.update { it.copy(lastTrigger = source) }
         graph.agent.cancel()
         speaker.stop()
-        commandJob = lifecycleScope.launch {
+        commandJob = lifecycleScope.launch(guard) {
             previous?.cancelAndJoin()
             runCommand(source, readAloud, followUp)
         }
         micDemand.trySend(Unit)
         val settings = graph.settings.current
-        if (settings.listeningPaused) lifecycleScope.launch { graph.settings.update { it.copy(listeningPaused = false) } }
+        if (settings.listeningPaused) lifecycleScope.launch(guard) { graph.settings.update { it.copy(listeningPaused = false) } }
         skipQuietHours()
         if (settings.wakeOverlay && source in OVERLAY_SOURCES) showOverlay(screenOn = source == TriggerSource.WAKE_WORD && settings.wakeScreenOn)
     }
 
-    private fun showOverlay(screenOn: Boolean) {
+    private fun showOverlay(screenOn: Boolean, followUp: Boolean = false) {
         val service = MarionetteVoiceInteractionService.instance ?: return
         val args = Bundle().apply {
             putBoolean(AssistantSession.EXTRA_ATTACH, true)
             putBoolean(AssistantSession.EXTRA_SCREEN_ON, screenOn)
+            putBoolean(AssistantSession.EXTRA_FOLLOW_UP, followUp)
         }
         runCatching { service.showSession(args, 0) }.onFailure { Logger.w("Overlay showSession failed", it) }
     }
 
     private fun cancelCommand() {
         Logger.i("Turn cancelled")
+        Logger.ux("cancel")
+        VoiceBus.update { it.copy(lastCancelAt = SystemClock.elapsedRealtime()) }
+        dropResend()
         commandJob?.cancel()
         graph.agent.cancel()
         speaker.stop()
@@ -511,12 +633,15 @@ class VoiceService : LifecycleService() {
         acquireWakeLock()
         try {
             Logger.i("Voice turn from $source")
+            Logger.ux("turn_start", source)
+            slowNoticeGiven = false
             graph.settings.current.let { s ->
-                if (s.sendContext) lifecycleScope.launch { graph.device.prefetch(s.contextFields, s.language) }
+                if (s.sendContext) lifecycleScope.launch(guard) { graph.device.prefetch(s.contextFields, s.language) }
                 Http.warm(listOfNotNull(s.sttCloud.baseUrl.takeIf { s.sttEngine == SttEngine.CLOUD }, s.baseUrl, s.ttsCloud.baseUrl.takeIf { s.cloudSpeech }))
-                graph.agent.warmUp()
+                warmOnSpeech = true
             }
             graph.playback.hold()
+            graph.audioRoutes.route().let { route -> cues.open(route, graph.audioRoutes.info(route.output)) }
             var text = if (readAloud == null) {
                 listen(NO_SPEECH_MILLIS, earcon = true)
             } else {
@@ -524,23 +649,32 @@ class VoiceService : LifecycleService() {
                 speak(readAloud)
                 val seconds = graph.settings.current.followUpSeconds
                 if (!followUp || seconds <= 0) return
-                listen(seconds * 1000L, earcon = true).ifBlank { return }
+                listen(seconds * 1000L, earcon = true).also { if (it.isBlank() && failedAudio == null) return }
             }
             val settings = graph.settings.current
             if (source == TriggerSource.WAKE_WORD && readAloud == null && text.isNotBlank() &&
                 JunkTranscript.isJunk(text, listOf(settings.language) + settings.extraLanguages)
             ) {
-                Logger.i("Wake turn dropped, no request in: $text")
+                Logger.content("Wake turn dropped, no request in", text)
                 playEarcon(Earcon.ERROR)
                 return
             }
             while (true) {
+                acquireWakeLock()
+                val unsent = failedAudio
+                failedAudio = null
+                if (text.isBlank() && unsent != null) {
+                    queueResend(Resend(null, unsent, SystemClock.elapsedRealtime()))
+                    speak(spoken(R.string.voice_resend_queued))
+                    break
+                }
                 if (text.isBlank()) {
                     if (!inCall()) playEarcon(Earcon.ERROR)
                     break
                 }
                 if (isStopText(text)) {
-                    Logger.i("Stop phrase in transcript: $text")
+                    Logger.content("Stop phrase in transcript", text)
+                    dropResend()
                     playEarcon(Earcon.ERROR)
                     break
                 }
@@ -548,11 +682,22 @@ class VoiceService : LifecycleService() {
                 val turn = runWithHold(text)
                 if (turn.quiet) break
                 VoiceBus.update { it.copy(phase = VoicePhase.SPEAKING) }
-                speak(if (turn.status == TurnStatus.FAILED) spoken(R.string.voice_error_check_chat) else turn.reply)
+                if (!turn.undelivered) resend = null
+                if (turn.undelivered) {
+                    queueResend(Resend(text, null, SystemClock.elapsedRealtime()))
+                    speak(spoken(R.string.voice_resend_queued))
+                    break
+                }
+                if (!turn.replySpoken) speak(if (turn.status == TurnStatus.FAILED) turn.reply.ifBlank { spoken(R.string.voice_error_check_chat) } else turn.reply)
                 val followUp = graph.settings.current.followUpSeconds
                 if (turn.status != TurnStatus.ANSWERED || followUp <= 0) break
+                if (graph.settings.current.wakeOverlay && !AssistantSession.isShown && getSystemService(PowerManager::class.java).isInteractive) showOverlay(screenOn = false, followUp = true)
+                Logger.ux("follow_up", followUp)
                 text = listen(followUp * 1000L, earcon = true)
-                if (text.isBlank()) break
+                if (text.isBlank()) {
+                    playEarcon(Earcon.DONE)
+                    break
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -560,8 +705,11 @@ class VoiceService : LifecycleService() {
             Logger.w("Voice turn failed", e)
             VoiceBus.update { it.copy(lastError = e.message) }
             playEarcon(Earcon.ERROR)
-            speak(spoken(R.string.voice_error_spoken))
+            runCatching { speak(spoken(R.string.voice_error_spoken)) }
         } finally {
+            Logger.i("Voice turn done")
+            Logger.ux("turn_end")
+            cues.close()
             mode = Mode.WAKE
             turnEndedAt = SystemClock.elapsedRealtime()
             commandSink?.session?.cancel()
@@ -577,23 +725,30 @@ class VoiceService : LifecycleService() {
         val lines = Channel<String>(Channel.UNLIMITED)
         var spoken = false
         var talking = false
+        var holdLine: String? = null
+        var current: String? = null
         val voice = launch {
             for (line in lines) {
+                if (confirming) continue
                 spoken = true
                 talking = true
+                current = line
                 speak(line)
+                current = null
                 talking = false
             }
         }
         val pulse = launch {
-            while (true) {
-                delay(PULSE_MILLIS)
-                if (!talking && VoiceBus.status.value.phase == VoicePhase.THINKING) playEarcon(Earcon.PULSE)
-            }
+            waitingCues(onlyWhen = { !talking && VoiceBus.status.value.phase == VoicePhase.THINKING && (!resending || graph.agent.delivery.value == Delivery.ACCEPTED) })
         }
         val hold = launch {
             delay(graph.settings.current.holdSeconds * 1000L)
-            if (!spoken && VoiceBus.status.value.phase == VoicePhase.THINKING) holdPhrase()?.let(lines::trySend)
+            if (!spoken && VoiceBus.status.value.phase == VoicePhase.THINKING && (!resending || graph.agent.delivery.value == Delivery.ACCEPTED)) {
+                holdPhrase()?.let {
+                    holdLine = it
+                    lines.trySend(it)
+                }
+            }
         }
         val turn = graph.agent.run(
             text, TurnSource.VOICE,
@@ -613,55 +768,115 @@ class VoiceService : LifecycleService() {
         hold.cancel()
         pulse.cancel()
         lines.close()
+        if (current != null && current == holdLine) speaker.stop()
         voice.join()
         turn
     }
 
-    private suspend fun listen(noSpeechMillis: Long, earcon: Boolean): String {
+    private suspend fun listen(noSpeechMillis: Long, earcon: Boolean, quickAnswer: Boolean = false): String {
         VoiceBus.update { it.copy(phase = VoicePhase.LISTENING, partial = "", lastError = null) }
         mode = Mode.BUSY
-        if (earcon) playEarcon(Earcon.WAKE)
+        val route = graph.audioRoutes.route()
+        requestMic = graph.audioRoutes.openRequestMic(route)
+        useMic(route.requestInput)
+        try {
+            val beepMillis = if (earcon && graph.settings.current.earcons) Earcons.durationMillis(Earcon.WAKE, route, graph.audioRoutes.info(route.output)) else 0L
+            return transcribe(noSpeechMillis, beepMillis, quickAnswer) { if (earcon) lifecycleScope.launch(guard) { playEarcon(Earcon.WAKE, route) } }
+        } finally {
+            useMic(graph.audioRoutes.route().wakeInput)
+            requestMic?.invoke()
+            requestMic = null
+        }
+    }
+
+    private suspend fun transcribe(noSpeechMillis: Long, beepMillis: Long, quickAnswer: Boolean, onListening: () -> Unit): String {
         val settings = graph.settings.current
         val engine = sttEngine()
+        latestPartial = ""
         val session = try {
-            engine.start(settings.language, settings.extraLanguages) { partial -> VoiceBus.update { it.copy(partial = partial) } }
+            engine.start(settings.language, settings.extraLanguages) { partial ->
+                latestPartial = partial
+                VoiceBus.update { it.copy(partial = partial) }
+            }
         } catch (e: Exception) {
             Logger.w("STT start failed", e)
             VoiceBus.update { it.copy(lastError = e.message) }
             return ""
         }
         vad?.reset()
-        val sink = CommandSink(session, noSpeechMillis)
-        commandSink = sink
-        mode = Mode.COMMAND
-        val endpoint = try {
-            sink.endpoint.await()
+        var sink = CommandSink(session, noSpeechMillis, beepMillis = beepMillis, quickAnswer = quickAnswer)
+        var early: Deferred<Result<String>>? = null
+        var grace: Deferred<Result<String>>? = null
+        try {
+            commandSink = sink
+            mode = Mode.COMMAND
+            onListening()
+            while (true) {
+                commandSink = sink
+                mode = Mode.COMMAND
+                val endpoint = sink.endpoint.await()
+                Logger.i("Endpoint $endpoint after ${sink.elapsedMillis} ms")
+                if (endpoint == Endpoint.NO_SPEECH || endpoint == Endpoint.CANCELLED) {
+                    session.cancel()
+                    return ""
+                }
+                if (endpoint != Endpoint.SPEECH_END || !session.resumable) break
+                sink.inGrace = true
+                val pending = lifecycleScope.async { runCatching { session.finish() } }
+                grace = pending
+                val graceStart = SystemClock.elapsedRealtime()
+                val resumed = withTimeoutOrNull(RESUME_GRACE_MILLIS) {
+                    while (!sink.resumed.isCompleted && !(pending.isCompleted && SystemClock.elapsedRealtime() - graceStart >= MIN_GRACE_MILLIS)) delay(GRACE_POLL_MILLIS)
+                    sink.resumed.isCompleted
+                } == true
+                if (!resumed) {
+                    sink.inGrace = false
+                    early = pending
+                    break
+                }
+                pending.cancel()
+                session.dropSpeculation()
+                Logger.i("Speech resumed after the endpoint")
+                sink = CommandSink(session, noSpeechMillis, quickAnswer = quickAnswer, speechStarted = true, elapsedMillis = sink.elapsedMillis)
+            }
         } catch (e: CancellationException) {
+            grace?.cancel()
             session.cancel()
             throw e
         } finally {
             mode = Mode.BUSY
             commandSink = null
         }
-        Logger.i("Endpoint $endpoint after ${sink.elapsedMillis} ms")
-        if (endpoint == Endpoint.NO_SPEECH || endpoint == Endpoint.CANCELLED) {
-            session.cancel()
-            return ""
+        val cues = lifecycleScope.launch(guard) {
+            playEarcon(Earcon.WORKING)
+            waitingCues { true }
         }
-        lifecycleScope.launch { playEarcon(Earcon.WORKING) }
         VoiceBus.update { it.copy(phase = VoicePhase.TRANSCRIBING) }
         val transcribing = System.currentTimeMillis()
-        return runCatching { session.finish() }
+        return runCatching {
+            try {
+                early?.await()?.getOrThrow() ?: session.finish()
+            } catch (e: CancellationException) {
+                early?.cancel()
+                session.cancel()
+                throw e
+            } finally {
+                cues.cancel()
+            }
+        }
+            .onFailure { if (it is CancellationException) throw it }
             .also { Logger.i("Transcript ready ${System.currentTimeMillis() - transcribing} ms after endpoint") }
             .onSuccess { VoiceBus.update { s -> s.copy(speechLanguageMissing = false) } }
             .onFailure {
                 Logger.w("STT failed", it)
                 val missing = (it as? SttException)?.languageMissing == true
                 VoiceBus.update { s -> s.copy(lastError = it.message, speechLanguageMissing = missing || s.speechLanguageMissing) }
-                if (missing) speak(spoken(R.string.voice_language_missing))
+                failedAudio = session.recorded()?.takeIf { _ -> !missing && it is IOException }
+                if (failedAudio == null) speak(spoken(if (missing) R.string.voice_language_missing else R.string.voice_stt_failed))
             }
             .getOrDefault("")
-            .also { text -> Logger.i("Heard: $text") }
+            .let { text -> if (JunkTranscript.isHallucination(text)) "".also { Logger.i("Dropped a known STT hallucination") } else text }
+            .also { text -> Logger.content("Heard", text) }
     }
 
     private fun agentSaidStop(): Boolean {
@@ -677,13 +892,39 @@ class VoiceService : LifecycleService() {
     }
 
     private suspend fun confirmByVoice(request: ConfirmationRequest) {
+        confirming = true
+        try {
+            askByVoice(request)
+        } finally {
+            confirming = false
+        }
+    }
+
+    private suspend fun askByVoice(request: ConfirmationRequest) {
         val previous = VoiceBus.status.value.phase
         VoiceBus.update { it.copy(phase = VoicePhase.SPEAKING) }
         speak(request.prompt)
         repeat(2) {
-            val answer = YesNo.parse(listen(CONFIRM_TIMEOUT_MILLIS, earcon = true))
-            if (answer != null) {
-                request.answer.complete(answer)
+            val heard = listen(CONFIRM_TIMEOUT_MILLIS, earcon = true, quickAnswer = true)
+            if (failedAudio != null) {
+                failedAudio = null
+                speak(spoken(R.string.voice_stt_failed))
+                return@repeat
+            }
+            val answer = YesNo.parse(heard)
+            if (answer == true && YesNo.isBare(heard)) {
+                request.answer.complete(true)
+                VoiceBus.update { it.copy(phase = previous) }
+                return
+            }
+            if (answer != null || YesNo.isCorrection(heard)) {
+                val correction = when (answer) {
+                    true -> true
+                    false -> YesNo.changesRequest(heard)
+                    null -> true
+                }
+                if (correction && !YesNo.isBare(heard)) request.remark = heard.trim()
+                request.answer.complete(false)
                 VoiceBus.update { it.copy(phase = previous) }
                 return
             }
@@ -692,13 +933,127 @@ class VoiceService : LifecycleService() {
         VoiceBus.update { it.copy(phase = previous) }
     }
 
-    private suspend fun speak(text: String) {
+    private suspend fun speak(raw: String) {
+        val ticket = speaker.ticket()
+        val text = SpeechText.clean(raw)
         if (text.isBlank()) return
         val settings = graph.settings.current
-        val language = ReplyLanguage.detect(this, text, listOf(settings.language) + settings.extraLanguages)
-            .takeIf { it == settings.language || speaker.speaks(it) } ?: settings.language
+        val language = if (settings.extraLanguages.isEmpty() || text.length < SHORT_REPLY_CHARS) settings.language else {
+            ReplyLanguage.detect(this, text, listOf(settings.language) + settings.extraLanguages)
+                .takeIf { it == settings.language || speaker.speaks(it) } ?: settings.language
+        }
         val voice = settings.ttsVoice.takeIf { language == settings.language }.orEmpty()
-        speech.withLock { speaker.speak(text, language, voice, settings.speechRate, CloudVoice.from(settings)) }
+        val cloud = CloudVoice.from(settings)?.takeUnless { LinkSpeed.slow(this) }
+        speech.withLock {
+            Logger.ux("speak_start", text.length)
+            try {
+                graph.audioRoutes.route().let { route -> speaker.speak(text, language, voice, settings.speechRate, cloud, route, ticket, route.speechGain(settings.phoneVolume)) }
+            } finally {
+                Logger.ux("speak_end")
+            }
+        }
+    }
+
+    private suspend fun waitingCues(onlyWhen: () -> Boolean) {
+        val started = SystemClock.elapsedRealtime()
+        while (true) {
+            delay(PULSE_MILLIS)
+            if (!onlyWhen()) continue
+            val delivery = graph.agent.delivery.value
+            val waiting = VoiceBus.status.value.phase == VoicePhase.TRANSCRIBING || delivery == Delivery.SENDING || delivery == Delivery.RETRYING
+            playEarcon(if (waiting) Earcon.WAITING else Earcon.PULSE)
+            val slow = delivery == Delivery.RETRYING || SystemClock.elapsedRealtime() - started > SLOW_NETWORK_MILLIS
+            if (waiting && slow && !slowNoticeGiven) {
+                slowNoticeGiven = true
+                speak(spoken(R.string.voice_network_slow))
+            }
+        }
+    }
+
+    private fun dropResend() {
+        resend?.let { Logger.content("Queued resend dropped", it.text ?: "audio") }
+        resend = null
+    }
+
+    private fun queueResend(pending: Resend, now: Boolean = true) {
+        resend = pending
+        if (now) resendSignal.trySend(Unit)
+        if (resendJob?.isActive == true) return
+        resendJob = lifecycleScope.launch(guard) {
+            while (true) {
+                val waiting = resend ?: break
+                if (SystemClock.elapsedRealtime() - waiting.at > RESEND_WINDOW_MILLIS) {
+                    Logger.i("Resend window over, dropping: ${waiting.text ?: "audio"}")
+                    resend = null
+                    break
+                }
+                withTimeoutOrNull(RESEND_BACKOFF_MILLIS[minOf(waiting.attempts, RESEND_BACKOFF_MILLIS.lastIndex)]) { resendSignal.receive() }
+                val next = resend ?: break
+                if (commandJob?.isActive == true || !networkOnline()) continue
+                resend = null
+                commandJob = lifecycleScope.launch(guard) { runResend(next) }
+                commandJob?.join()
+            }
+        }
+    }
+
+    private suspend fun runResend(pending: Resend) {
+        acquireWakeLock()
+        resending = true
+        try {
+            Logger.content("Resending (attempt ${pending.attempts + 1})", pending.text ?: "${pending.audio?.size} samples")
+            val text = pending.text ?: pending.audio?.let { audio ->
+                transcribeLater(audio) ?: return queueResend(Resend(null, audio, pending.at, pending.attempts + 1), now = false)
+            } ?: return
+            if (text.isBlank()) return
+            graph.playback.hold()
+            val turn = coroutineScope {
+                val announce = launch {
+                    if (pending.text == null) speak(spoken(R.string.voice_resend_now))
+                    else graph.agent.delivery.first { it == Delivery.ACCEPTED }.also { speak(spoken(R.string.voice_resend_now)) }
+                }
+                VoiceBus.update { it.copy(phase = VoicePhase.THINKING, partial = text) }
+                runWithHold(text).also { announce.cancel() }
+            }
+            if (turn.undelivered) return queueResend(Resend(text, null, pending.at, pending.attempts + 1), now = false)
+            if (turn.quiet) return
+            VoiceBus.update { it.copy(phase = VoicePhase.SPEAKING) }
+            if (!turn.replySpoken) speak(turn.reply)
+        } finally {
+            resending = false
+            mode = Mode.WAKE
+            VoiceBus.update { it.copy(phase = if (running) VoicePhase.WAITING else VoicePhase.OFF, partial = "") }
+            withContext(NonCancellable) { graph.playback.release() }
+            releaseWakeLock()
+        }
+    }
+
+    private suspend fun transcribeLater(audio: ShortArray): String? {
+        val settings = graph.settings.current
+        return try {
+            val session = sttEngine().start(settings.language, settings.extraLanguages) {}
+            var offset = 0
+            while (offset < audio.size) {
+                val size = minOf(AudioSpec.CHUNK_SAMPLES, audio.size - offset)
+                session.accept(audio.copyOfRange(offset, offset + size), size)
+                offset += size
+            }
+            session.finish().also { Logger.content("Heard later", it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            Logger.i("Late transcription still offline")
+            null
+        } catch (e: Exception) {
+            Logger.w("Late transcription failed", e)
+            ""
+        }
+    }
+
+    private fun networkOnline(): Boolean {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val caps = connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     private fun holdPhrase(): String? {
@@ -710,8 +1065,9 @@ class VoiceService : LifecycleService() {
 
     private fun spoken(id: Int): String = localizedResources().getString(id)
 
-    private suspend fun playEarcon(earcon: Earcon) {
-        if (graph.settings.current.earcons) runCatching { Earcons.play(earcon) }
+    private suspend fun playEarcon(earcon: Earcon, route: AudioRoute = graph.audioRoutes.route()) {
+        if (graph.settings.current.earcons) runCatching { Earcons.play(earcon, route, graph.audioRoutes.info(route.output), graph.settings.current.let { route.cueGain(it.phoneVolume, it.earconVolume) }) }
+            .onFailure { if (it !is CancellationException) Logger.w("Earcon $earcon failed", it) }
     }
 
     private suspend fun checkSpeechLanguage() {
@@ -725,17 +1081,18 @@ class VoiceService : LifecycleService() {
         val cloud = settings.sttCloud
         val remote = OpenAiSpeechToText(
             apiKey = { graph.settings.current.key(Credential.of(cloud.provider)) },
-            baseUrl = cloud.baseUrl,
+            baseUrl = sttUrlOverride?.takeIf { BuildConfig.DEBUG } ?: cloud.baseUrl,
             model = settings.sttModel.ifBlank { cloud.models.first() },
+            cacheDir = cacheDir,
         )
         return when {
-            settings.sttEngine == SttEngine.CLOUD && remote.isAvailable() -> remote
+            settings.sttEngine == SttEngine.CLOUD && remote.isAvailable() -> FallbackSpeechToText(remote, AndroidSpeechToText(this))
             else -> AndroidSpeechToText(this)
         }
     }
 
     private fun clearEnrollment() {
-        lifecycleScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch(Dispatchers.IO + guard) {
             templates.clear()
             userSpeech.clear()
             falseWakes.clear()
@@ -744,7 +1101,7 @@ class VoiceService : LifecycleService() {
     }
 
     private fun markWake(key: String?, falseWake: Boolean) {
-        lifecycleScope.launch(Dispatchers.IO) { marking.withLock { markWakeNow(key, falseWake) } }
+        lifecycleScope.launch(Dispatchers.IO + guard) { marking.withLock { markWakeNow(key, falseWake) } }
     }
 
     private suspend fun markWakeNow(key: String?, falseWake: Boolean) {
@@ -766,14 +1123,21 @@ class VoiceService : LifecycleService() {
     }
 
     private fun deleteStopPhrase(id: String) {
-        lifecycleScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch(Dispatchers.IO + guard) {
             stopPhrases.delete(id)
             reloadDetectorNow()
         }
     }
 
     private fun startEnrollment(append: Boolean, stop: Pair<String, String>?, speech: Boolean) {
-        commandJob?.cancel()
+        val turn = commandJob
+        if (turn?.isActive == true) {
+            lifecycleScope.launch(guard) {
+                turn.cancelAndJoin()
+                startEnrollment(append, stop, speech)
+            }
+            return
+        }
         enrollAppend = append
         enrollStop = stop
         enrollSpeech = speech
@@ -794,10 +1158,10 @@ class VoiceService : LifecycleService() {
             VoiceBus.update { it.copy(enrolledPhrases = it.enrolledPhrases + 1) }
             if (graph.settings.current.earcons) {
                 enrollMutedUntil = SystemClock.elapsedRealtime() + EARCON_MUTE_MILLIS
-                lifecycleScope.launch { runCatching { Earcons.play(Earcon.DONE) } }
+                lifecycleScope.launch(guard) { runCatching { Earcons.play(Earcon.DONE) } }
             }
         }
-        if (enrollSamples >= enrollBuffer.size) lifecycleScope.launch { finishEnrollment(save = true) }
+        if (enrollSamples >= enrollBuffer.size) lifecycleScope.launch(guard) { finishEnrollment(save = true) }
     }
 
     private fun finishEnrollment(save: Boolean) {
@@ -805,7 +1169,7 @@ class VoiceService : LifecycleService() {
         mode = Mode.BUSY
         val audio = enrollBuffer.copyOf(enrollSamples)
         enrollCounter = null
-        lifecycleScope.launch {
+        lifecycleScope.launch(guard) {
             if (save && audio.isNotEmpty() && enrollSpeech) {
                 val frames = withContext(Dispatchers.Default) {
                     val e = detectorLock.withLock { embedder ?: SpeechEmbedder(assets).also { embedder = it } }
@@ -845,14 +1209,18 @@ class VoiceService : LifecycleService() {
     private fun saveSample(pcm: ShortArray, kind: String) {
         val bytes = ByteBuffer.allocate(pcm.size * 2).order(ByteOrder.LITTLE_ENDIAN)
         pcm.forEach { bytes.putShort(it) }
-        File(templates.samplesDir, "$kind-${System.currentTimeMillis()}.wav").writeBytes(OpenAiSpeechToText.wav(bytes.array()))
+        val name = "$kind-${System.currentTimeMillis()}.wav"
+        val temp = File(templates.samplesDir, "$name.tmp")
+        temp.writeBytes(OpenAiSpeechToText.wav(bytes.array()))
+        temp.renameTo(File(templates.samplesDir, name))
     }
 
     private fun acquireWakeLock() {
         val lock = wakeLock ?: getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "marionette:turn")
+            .apply { setReferenceCounted(false) }
             .also { wakeLock = it }
-        if (!lock.isHeld) lock.acquire(TURN_WAKE_LOCK_MILLIS)
+        lock.acquire(TURN_WAKE_LOCK_MILLIS)
     }
 
     private fun releaseWakeLock() {
@@ -896,14 +1264,14 @@ class VoiceService : LifecycleService() {
         }
         if (graph.settings.current.notificationTalk) {
             val talk = intent(this, ACTION_TALK).putExtra(EXTRA_SOURCE, TriggerSource.NOTIFICATION.ordinal)
-            builder.addAction(0, getString(R.string.action_talk), PendingIntent.getService(this, 1, talk, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            builder.addAction(0, getString(R.string.action_talk), PendingIntent.getForegroundService(this, 1, talk, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
         }
         builder.addAction(0, getString(R.string.action_turn_off), serviceIntent(2, ACTION_STOP))
         return builder.build()
     }
 
     private fun serviceIntent(code: Int, action: String): PendingIntent =
-        PendingIntent.getService(this, code, intent(this, action), PendingIntent.FLAG_IMMUTABLE)
+        PendingIntent.getForegroundService(this, code, intent(this, action), PendingIntent.FLAG_IMMUTABLE)
 
     companion object {
         private const val PAUSE_POLL_MILLIS = 60_000L
@@ -941,16 +1309,30 @@ class VoiceService : LifecycleService() {
         private const val EARCON_MUTE_MILLIS = 700L
         private const val NO_SPEECH_MILLIS = 6_000L
         private const val PULSE_MILLIS = 1_600L
+        private const val SLOW_NETWORK_MILLIS = 5_000L
+        private const val RESUME_GRACE_MILLIS = 700L
+        private const val MIC_RETRY_MIN_MILLIS = 500L
+        private const val MIC_RETRY_MAX_MILLIS = 30_000L
+        private const val MIN_GRACE_MILLIS = 350L
+        private const val GRACE_POLL_MILLIS = 25L
+        private const val RESEND_WINDOW_MILLIS = 5 * 60_000L
+        private val RESEND_BACKOFF_MILLIS = longArrayOf(1_000L, 15_000L, 30_000L, 60_000L)
+        private const val RESUME_SPEECH_MILLIS = 160L
         private const val CONFIRM_TIMEOUT_MILLIS = 5_000L
         private const val MAX_COMMAND_MILLIS = 120_000L
-        private const val TURN_WAKE_LOCK_MILLIS = 30 * 60_000L
+        private const val TURN_WAKE_LOCK_MILLIS = 5 * 60_000L
+        private val IDLE_ONLY_ACTIONS = setOf(ACTION_STOP, ACTION_CANCEL)
         private const val SPEECH_PROBABILITY = 0.55f
         private const val SILENCE_PROBABILITY = 0.35f
         private const val SPECULATE_MILLIS = 320L
+        private const val QUICK_ANSWER_SILENCE_MILLIS = 250L
         private const val CALL_POLL_MILLIS = 1_000L
-        private const val STOP_GRACE_MILLIS = 1_200L
+        private const val STOP_GRACE_MILLIS = 600L
         private const val PAUSE_GRACE_MILLIS = 1_000L
         private val OVERLAY_SOURCES = setOf(TriggerSource.WAKE_WORD, TriggerSource.HEADSET, TriggerSource.NOTIFICATION)
+        private const val SHORT_REPLY_CHARS = 20
+        private const val RECORD_BUFFER_SECONDS = 3
+        private val RINGING_MODES = setOf(AudioManager.MODE_RINGTONE, AudioManager.MODE_IN_CALL, AudioManager.MODE_CALL_SCREENING)
         private val CALL_MODES = setOf(AudioManager.MODE_RINGTONE, AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_CALL_SCREENING)
 
         @Volatile
@@ -966,6 +1348,9 @@ class VoiceService : LifecycleService() {
 
         @Volatile
         var tap: ((ShortArray, Int) -> Unit)? = null
+
+        @Volatile
+        var sttUrlOverride: String? = null
 
         fun inject(pcm: ShortArray) {
             if (!BuildConfig.DEBUG) return
@@ -1000,7 +1385,8 @@ class VoiceService : LifecycleService() {
         }
 
         private fun start(context: Context, intent: Intent) {
-            runCatching { ContextCompat.startForegroundService(context, intent) }
+            if (!running && intent.action in IDLE_ONLY_ACTIONS) return
+            runCatching { if (running) context.startService(intent) else ContextCompat.startForegroundService(context, intent) }
                 .onFailure { Logger.w("Cannot start voice service for ${intent.action}", it) }
         }
     }

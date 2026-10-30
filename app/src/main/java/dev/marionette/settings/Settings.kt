@@ -41,7 +41,7 @@ enum class TtsCloud(
     ),
 }
 
-enum class ContextField { TIME, LOCATION, MOTION, BATTERY, AUDIO, SCREEN }
+enum class ContextField { TIME, LOCATION, MOTION, BATTERY, AUDIO, SCREEN, NETWORK, ACTIVITY }
 
 data class AppSettings(
     val onboarded: Boolean = false,
@@ -89,6 +89,8 @@ data class AppSettings(
     val holdPhrases: List<String>? = null,
     val holdSeconds: Int = 3,
     val earcons: Boolean = true,
+    val earconVolume: Int = 0,
+    val phoneVolume: Int = 0,
     val warmOnWake: Boolean = true,
     val contextFields: Set<ContextField> = ContextField.entries.toSet(),
     val confirmationDisabled: Set<String> = emptySet(),

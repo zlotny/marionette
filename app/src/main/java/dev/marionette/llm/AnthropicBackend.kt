@@ -7,6 +7,7 @@ import dev.marionette.core.await
 import dev.marionette.core.int
 import dev.marionette.core.obj
 import dev.marionette.core.parseObject
+import dev.marionette.core.readCancellable
 import dev.marionette.core.string
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,13 +37,17 @@ class AnthropicBackend(
         system: String,
         messages: List<ChatMessage>,
         tools: List<ToolSpec>,
+        noTools: Boolean,
+        onAccepted: () -> Unit,
+        onUpload: (written: Long, total: Long) -> Unit,
         onText: (String) -> Unit,
     ): LlmReply = withContext(Dispatchers.IO) {
         val request = headers(Request.Builder().url("${baseUrl.trimEnd('/')}/messages"))
-            .post(AppJson.encodeToString(JsonObject.serializer(), requestBody(system, messages, tools)).toRequestBody(JSON))
+            .post(ProgressBody(AppJson.encodeToString(JsonObject.serializer(), requestBody(system, messages, tools, noTools)).toByteArray(), JSON, onUpload))
             .build()
-        client.newCall(request).await().use { response ->
+        client.newCall(request).readCancellable { response ->
             if (!response.isSuccessful) throw response.toLlmException()
+            onAccepted()
             val accumulator = Accumulator()
             response.body.source().forEachSseEvent { event -> accumulator.event(parseObject(event.data), onText) }
             accumulator.reply()
@@ -61,12 +66,22 @@ class AnthropicBackend(
         .header("x-api-key", apiKey)
         .header("anthropic-version", "2023-06-01")
 
-    fun requestBody(system: String, messages: List<ChatMessage>, tools: List<ToolSpec>): JsonObject = buildJsonObject {
+    fun requestBody(system: String, messages: List<ChatMessage>, tools: List<ToolSpec>, noTools: Boolean = false): JsonObject = buildJsonObject {
         put("model", model)
         put("max_tokens", maxTokens)
         put("stream", true)
         thinking?.let { level -> putJsonObject("output_config") { put("effort", level.id) } }
-        if (system.isNotBlank()) put("system", system)
+        putJsonObject("cache_control") { put("type", "ephemeral") }
+        if (system.isNotBlank()) {
+            putJsonArray("system") {
+                addJsonObject {
+                    put("type", "text")
+                    put("text", system)
+                    putJsonObject("cache_control") { put("type", "ephemeral") }
+                }
+            }
+        }
+        if (noTools && tools.isNotEmpty()) putJsonObject("tool_choice") { put("type", "none") }
         putJsonArray("messages") { groupTurns(messages).forEach { turn -> addTurn(turn) } }
         if (tools.isNotEmpty()) {
             putJsonArray("tools") {
@@ -180,7 +195,9 @@ class AnthropicBackend(
 
         fun event(json: JsonObject, onText: (String) -> Unit) {
             when (json.string("type")) {
-                "message_start" -> json["message"].obj()?.get("usage").obj()?.let { input = it.int("input_tokens") ?: 0 }
+                "message_start" -> json["message"].obj()?.get("usage").obj()?.let {
+                    input = (it.int("input_tokens") ?: 0) + (it.int("cache_read_input_tokens") ?: 0) + (it.int("cache_creation_input_tokens") ?: 0)
+                }
                 "content_block_start" -> {
                     val index = json.int("index") ?: return
                     val block = json["content_block"].obj() ?: return

@@ -12,6 +12,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.marionette.llm.Provider
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.emptyPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -20,7 +22,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.runBlocking
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 class SettingsStore(context: Context, scope: CoroutineScope) {
     private val store = context.dataStore
@@ -72,9 +77,12 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val holdPhrases = stringPreferencesKey("hold_phrases")
         val holdSeconds = intPreferencesKey("hold_seconds")
         val earcons = booleanPreferencesKey("earcons")
+        val earconVolume = intPreferencesKey("earcon_volume")
+        val phoneVolume = intPreferencesKey("phone_volume")
         val relock = booleanPreferencesKey("relock_after_screen_control")
         val warmOnWake = booleanPreferencesKey("warm_on_wake")
         val contextFields = stringSetPreferencesKey("context_fields")
+        val contextOff = stringSetPreferencesKey("context_fields_off")
         val confirmationDisabled = stringSetPreferencesKey("confirmation_disabled")
         val disabledTools = stringSetPreferencesKey("disabled_tools")
         val legacyGooglePlacesKey = stringPreferencesKey("google_places_key_sealed")
@@ -141,9 +149,10 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             holdPhrases = p[Keys.holdPhrases]?.split('\n')?.filter { it.isNotBlank() },
             holdSeconds = p[Keys.holdSeconds] ?: defaults.holdSeconds,
             earcons = p[Keys.earcons] ?: defaults.earcons,
+            earconVolume = p[Keys.earconVolume] ?: defaults.earconVolume,
+            phoneVolume = p[Keys.phoneVolume] ?: defaults.phoneVolume,
             warmOnWake = p[Keys.warmOnWake] ?: defaults.warmOnWake,
-            contextFields = p[Keys.contextFields]?.mapNotNull { runCatching { ContextField.valueOf(it) }.getOrNull() }?.toSet()
-                ?: defaults.contextFields,
+            contextFields = contextFields(p[Keys.contextOff], p[Keys.contextFields]) ?: defaults.contextFields,
             confirmationDisabled = p[Keys.confirmationDisabled] ?: defaults.confirmationDisabled,
             disabledTools = p[Keys.disabledTools] ?: defaults.disabledTools,
             uiAutomationBlocklist = p[Keys.blocklist] ?: defaults.uiAutomationBlocklist,
@@ -215,11 +224,24 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         s.holdPhrases?.let { p[Keys.holdPhrases] = it.joinToString("\n") } ?: p.remove(Keys.holdPhrases)
         p[Keys.holdSeconds] = s.holdSeconds
         p[Keys.earcons] = s.earcons
+        p[Keys.earconVolume] = s.earconVolume
+        p[Keys.phoneVolume] = s.phoneVolume
         p[Keys.warmOnWake] = s.warmOnWake
         p[Keys.contextFields] = s.contextFields.map { it.name }.toSet()
+        p[Keys.contextOff] = (ContextField.entries - s.contextFields).map { it.name }.toSet()
         p[Keys.confirmationDisabled] = s.confirmationDisabled
         p[Keys.disabledTools] = s.disabledTools
         p[Keys.blocklist] = s.uiAutomationBlocklist
         p[Keys.relock] = s.relockAfterScreenControl
     }
+
+    private fun fields(names: Set<String>) = names.mapNotNull { runCatching { ContextField.valueOf(it) }.getOrNull() }.toSet()
+
+    private fun contextFields(off: Set<String>?, on: Set<String>?): Set<ContextField>? = when {
+        off != null -> ContextField.entries.toSet() - fields(off)
+        on != null -> fields(on) + (ContextField.entries - LEGACY_CONTEXT_FIELDS)
+        else -> null
+    }
 }
+
+private val LEGACY_CONTEXT_FIELDS = setOf(ContextField.TIME, ContextField.LOCATION, ContextField.MOTION, ContextField.BATTERY, ContextField.AUDIO, ContextField.SCREEN)

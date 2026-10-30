@@ -1,8 +1,13 @@
 package dev.marionette.core
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.OkHttpClient
@@ -19,14 +24,42 @@ object Http {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        .pingInterval(30, TimeUnit.SECONDS)
+        .connectionPool(ConnectionPool(5, 60, TimeUnit.SECONDS))
         .addInterceptor { chain ->
             chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())
         }
         .build()
 
-    val agent: OkHttpClient = client.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
+    val agent: OkHttpClient = client.newBuilder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS).build()
 
-    val model: OkHttpClient = client.newBuilder().readTimeout(300, TimeUnit.SECONDS).build()
+    val model: OkHttpClient = client.newBuilder().readTimeout(90, TimeUnit.SECONDS).build()
+
+    val speech: OkHttpClient = client.newBuilder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    val tts: OkHttpClient = client.newBuilder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    val tools: OkHttpClient = client.newBuilder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .callTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    fun cancelAgentCalls() {
+        agent.dispatcher.cancelAll()
+    }
+
+    fun dropConnections() {
+        LinkSpeed.reset()
+        client.dispatcher.executorService.execute { client.connectionPool.evictAll() }
+    }
 
     fun warm(urls: List<String>) {
         urls.mapNotNull { it.toHttpUrlOrNull()?.resolve("/") }.distinctBy { it.host to it.port }.forEach { url ->
@@ -35,6 +68,21 @@ object Http {
                 override fun onFailure(call: Call, e: IOException) = Unit
             })
         }
+    }
+}
+
+suspend fun <T> Call.readCancellable(block: suspend (Response) -> T): T = coroutineScope {
+    val guard = launch(Dispatchers.IO) {
+        try {
+            awaitCancellation()
+        } finally {
+            cancel()
+        }
+    }
+    try {
+        await().use { block(it) }
+    } finally {
+        guard.cancel()
     }
 }
 

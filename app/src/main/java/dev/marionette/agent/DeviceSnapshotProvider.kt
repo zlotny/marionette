@@ -4,6 +4,11 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
 import android.app.UiModeManager
+import kotlin.math.roundToInt
+import dev.marionette.core.LinkSpeed
+import android.net.wifi.WifiManager
+import android.net.NetworkCapabilities
+import android.net.ConnectivityManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -26,7 +31,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -35,11 +39,16 @@ import java.time.ZonedDateTime
 import java.util.Locale
 import kotlin.coroutines.resume
 
-class DeviceSnapshotProvider(private val context: Context) {
+class DeviceSnapshotProvider(
+    private val context: Context,
+    private val carConnected: () -> Boolean = { false },
+    private val audioDevices: () -> String? = { null },
+    private val mediaHeld: (String?) -> Boolean = { false },
+) {
     private val fused by lazy { LocationServices.getFusedLocationProviderClient(context) }
-    private var cachedLocation: Location? = null
-    private var cachedAt = 0L
-    private var cachedPlace: Pair<String, String?>? = null
+    @Volatile private var cachedLocation: Location? = null
+    @Volatile private var cachedAt = 0L
+    @Volatile private var cachedPlace: Pair<String, String?>? = null
     private val background = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val locating = Mutex()
     private val geocoding = Mutex()
@@ -47,6 +56,8 @@ class DeviceSnapshotProvider(private val context: Context) {
     val isLocked: Boolean get() = context.getSystemService(KeyguardManager::class.java).isDeviceLocked
 
     val isKeyguardShowing: Boolean get() = context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
+
+    val inCar: Boolean get() = carConnected() || context.getSystemService(UiModeManager::class.java).currentModeType == Configuration.UI_MODE_TYPE_CAR
 
     val isScreenOn: Boolean get() = context.getSystemService(PowerManager::class.java).isInteractive
 
@@ -71,7 +82,8 @@ class DeviceSnapshotProvider(private val context: Context) {
             withTimeoutOrNull(LOCATION_TIMEOUT_MILLIS) {
                 val token = CancellationTokenSource()
                 try {
-                    fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token.token).awaitOrNull()
+                    val moving = inCar || (cachedLocation?.let { it.hasSpeed() && it.speed > MOVING_MPS } == true)
+                    fused.getCurrentLocation(if (moving) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY, token.token).awaitOrNull()
                 } finally {
                     token.cancel()
                 }
@@ -102,9 +114,14 @@ class DeviceSnapshotProvider(private val context: Context) {
     private fun isRecent(location: Location): Boolean = ageMillis(location) < LOCATION_MAX_AGE_MILLIS
 
     suspend fun snapshot(fields: Set<ContextField>, language: String): DeviceSnapshot {
+        val activity = ContextField.ACTIVITY in fields
+        fun <T> read(block: () -> T) = if (activity) background.async(Dispatchers.IO) { runCatching(block).getOrNull() } else null
+        val clock = read { PhoneActivity.clock(context) }
+        val messages = read { PhoneActivity.messages(context) }
+        val agenda = read { PhoneActivity.agenda(context) }
+        val missedCalls = read { PhoneActivity.missedCalls(context) }
         val location = if (ContextField.LOCATION in fields || ContextField.MOTION in fields) quickLocation() else null
         val battery = context.getSystemService(BatteryManager::class.java)
-        val uiMode = context.getSystemService(UiModeManager::class.java)
         val locale = language.ifBlank { Locale.getDefault().toLanguageTag() }
         return DeviceSnapshot(
             time = ZonedDateTime.now(),
@@ -119,10 +136,38 @@ class DeviceSnapshotProvider(private val context: Context) {
             batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it in 0..100 },
             charging = battery.isCharging,
             audioOutput = audioOutput(),
-            androidAuto = uiMode.currentModeType == Configuration.UI_MODE_TYPE_CAR,
+            androidAuto = inCar,
+            audioDevices = if (ContextField.AUDIO in fields) audioDevices() else null,
+            network = if (ContextField.NETWORK in fields) network() else null,
             screenOn = isScreenOn,
             locked = isLocked,
+            media = if (ContextField.ACTIVITY in fields) runCatching { PhoneActivity.media(context, mediaHeld) }.getOrNull() else null,
+            clock = clock?.await(),
+            navigation = if (ContextField.ACTIVITY in fields) runCatching { PhoneActivity.navigation() }.getOrNull() else null,
+            messages = messages?.await(),
+            agenda = agenda?.await(),
+            missedCalls = missedCalls?.await(),
         )
+    }
+
+    @Suppress("DEPRECATION")
+    fun network(): String {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val caps = connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return "offline"
+        val kind = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
+                val ssid = runCatching { context.applicationContext.getSystemService(WifiManager::class.java).connectionInfo.ssid }.getOrNull()
+                    ?.trim('"')?.takeIf { it.isNotBlank() && it != WifiManager.UNKNOWN_SSID.trim('<', '>') && !it.startsWith("<") }
+                ssid?.let { "wifi \"$it\"" } ?: "wifi"
+            }
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile data"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> "other"
+        }
+        val internet = if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) "internet ok" else "no internet"
+        val speed = LinkSpeed.uploadKbps?.let { ", measured upload ${it.roundToInt()} kbit/s" }.orEmpty()
+        val slow = if (LinkSpeed.slow(context)) ", slow link" else ""
+        return "$kind, $internet$speed$slow"
     }
 
     fun audioOutput(): String {
@@ -140,8 +185,8 @@ class DeviceSnapshotProvider(private val context: Context) {
         cachedPlace?.takeIf { it.first == key }?.let { return it.second }
         if (!Geocoder.isPresent()) return null
         val geocoder = Geocoder(context, Locale.forLanguageTag(locale))
-        val address = withTimeoutOrNull(GEOCODER_TIMEOUT_MILLIS) {
-            if (Build.VERSION.SDK_INT >= 33) {
+        val lookup = withTimeoutOrNull(GEOCODER_TIMEOUT_MILLIS) {
+            listOf(if (Build.VERSION.SDK_INT >= 33) {
                 suspendCancellableCoroutine { continuation ->
                     geocoder.getFromLocation(location.latitude, location.longitude, 1, object : Geocoder.GeocodeListener {
                         override fun onGeocode(addresses: MutableList<android.location.Address>) {
@@ -154,13 +199,13 @@ class DeviceSnapshotProvider(private val context: Context) {
                     })
                 }
             } else {
-                withContext(Dispatchers.IO) {
+                background.async(Dispatchers.IO) {
                     @Suppress("DEPRECATION")
                     runCatching { geocoder.getFromLocation(location.latitude, location.longitude, 1)?.firstOrNull() }.getOrNull()
-                }
-            }
-        }
-        val name = address?.let { a ->
+                }.await()
+            })
+        } ?: return null
+        val name = lookup.first()?.let { a ->
             listOfNotNull(a.locality ?: a.subAdminArea, a.thoroughfare?.let { t -> listOfNotNull(t, a.subThoroughfare).joinToString(" ") })
                 .joinToString(", ")
                 .ifBlank { null }
@@ -175,6 +220,7 @@ class DeviceSnapshotProvider(private val context: Context) {
 
     companion object {
         private const val LOCATION_MAX_AGE_MILLIS = 15_000L
+        private const val MOVING_MPS = 2f
         private const val LOCATION_TIMEOUT_MILLIS = 4_000L
         private const val GEOCODER_TIMEOUT_MILLIS = 2_500L
         private const val SNAPSHOT_LOCATION_MILLIS = 800L

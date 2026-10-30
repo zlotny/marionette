@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -16,6 +17,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
@@ -43,13 +45,16 @@ import dev.marionette.voice.TriggerSource
 import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoiceService
 import dev.marionette.voice.idle
+import kotlin.math.roundToInt
 
 class AssistantSession(context: Context) : VoiceInteractionSession(context), LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
     private val registry = LifecycleRegistry(this)
     private val savedState = SavedStateRegistryController.create(this)
     private var sinceTurnId by mutableLongStateOf(0L)
+    private var followUp by mutableStateOf(false)
     private var showCount by mutableLongStateOf(0L)
     private val power = context.getSystemService(PowerManager::class.java)
+    private val windows = context.getSystemService(WindowManager::class.java)
     private var screenWatched = false
     private var screenWasOn = false
 
@@ -88,7 +93,7 @@ class AssistantSession(context: Context) : VoiceInteractionSession(context), Lif
         setContent {
             MarionetteTheme {
                 key(showCount) {
-                    AssistOverlay(sinceTurnId = sinceTurnId, onCancel = ::cancel, onDismiss = ::hide)
+                    AssistOverlay(sinceTurnId = sinceTurnId, onCancelTurn = { cancelTurn() }, onDismiss = ::hide, onScrim = ::blurBehind, followUp = followUp)
                 }
             }
         }
@@ -111,7 +116,9 @@ class AssistantSession(context: Context) : VoiceInteractionSession(context), Lif
         val attach = args?.getBoolean(EXTRA_ATTACH) == true
         turnScreenOn(args?.getBoolean(EXTRA_SCREEN_ON) == true && !power.isInteractive)
         sinceTurnId = graph.conversation.turns.value.lastOrNull()?.id ?: 0L
+        followUp = args?.getBoolean(EXTRA_FOLLOW_UP) == true
         showCount++
+        Logger.ux("overlay_show", if (followUp) "follow_up" else if (attach) "attach" else "assist")
         registry.currentState = Lifecycle.State.RESUMED
         shown = this
         watchScreen(true)
@@ -119,11 +126,13 @@ class AssistantSession(context: Context) : VoiceInteractionSession(context), Lif
     }
 
     override fun onHide() {
+        Logger.ux("overlay_hide")
         if (shown === this) shown = null
         val screenTurnedOff = screenWasOn && !power.isInteractive
         watchScreen(false)
         if (screenTurnedOff && busy() && !MarionetteAccessibilityService.lockedRecently) cancelTurn()
         if (registry.currentState.isAtLeast(Lifecycle.State.STARTED)) registry.currentState = Lifecycle.State.CREATED
+        blurBehind(0f)
         super.onHide()
     }
 
@@ -158,6 +167,16 @@ class AssistantSession(context: Context) : VoiceInteractionSession(context), Lif
         if (busy()) cancel() else hide()
     }
 
+    private fun blurBehind(fraction: Float) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val w = window?.window ?: return
+        val radius = if (windows.isCrossWindowBlurEnabled) (fraction * MAX_BLUR_DP * context.resources.displayMetrics.density).roundToInt() else 0
+        val attrs = w.attributes
+        if (attrs.blurBehindRadius == radius) return
+        if (radius > 0) w.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND) else w.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+        w.attributes = attrs.apply { blurBehindRadius = radius }
+    }
+
     @Suppress("DEPRECATION")
     private fun turnScreenOn(on: Boolean) {
         val flag = WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
@@ -180,9 +199,13 @@ class AssistantSession(context: Context) : VoiceInteractionSession(context), Lif
     companion object {
         const val EXTRA_ATTACH = "dev.marionette.ATTACH"
         const val EXTRA_SCREEN_ON = "dev.marionette.SCREEN_ON"
+        const val EXTRA_FOLLOW_UP = "dev.marionette.FOLLOW_UP"
+        private const val MAX_BLUR_DP = 24f
 
         @Volatile
         private var shown: AssistantSession? = null
+
+        val isShown: Boolean get() = shown != null
 
         fun hideShown(): Boolean {
             val session = shown ?: return false

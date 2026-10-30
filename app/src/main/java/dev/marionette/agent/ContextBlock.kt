@@ -24,7 +24,7 @@ object ContextBlock {
                 add("location: unknown")
             }
         }
-        if (ContextField.MOTION in fields && s.speedKmh != null) {
+        if (ContextField.MOTION in fields && s.speedKmh != null && s.speedKmh >= MIN_SPEED_KMH) {
             val heading = s.headingDegrees?.let { ", heading ${it.roundToInt()}" }.orEmpty()
             add("speed: ${s.speedKmh.roundToInt()} km/h$heading")
         }
@@ -33,12 +33,29 @@ object ContextBlock {
         }
         if (ContextField.AUDIO in fields) {
             s.audioOutput?.let { add("audio_output: $it") }
-            s.androidAuto?.let { add("android_auto: $it") }
+            if (s.androidAuto == true) add("driving: Android Auto connected")
+            s.audioDevices?.let { add("audio_devices: $it") }
+        }
+        if (ContextField.NETWORK in fields) s.network?.let { add("network: $it") }
+        if (ContextField.ACTIVITY in fields) {
+            s.media?.let { add("media: $it") }
+            s.clock?.let { add("clock: $it") }
+            s.navigation?.let { add("navigation: $it") }
+            s.messages?.let { add("unread_messages: $it") }
+            s.missedCalls?.let { add("missed_calls: $it") }
+            s.agenda?.let { add("calendar: $it") }
         }
         if (ContextField.SCREEN in fields && s.screenOn != null) {
-            add("screen: ${if (s.screenOn) "on" else "off"}, ${if (s.locked == true) "locked" else "unlocked"}")
+            add(
+                when {
+                    !s.screenOn -> "screen: off"
+                    s.locked == true -> "screen: on, locked (needs PIN, fingerprint or face)"
+                    else -> "screen: on, unlocked"
+                },
+            )
         }
     }.joinToString("\n")
 
     private const val STALE_SECONDS = 30L
+    private const val MIN_SPEED_KMH = 5f
 }

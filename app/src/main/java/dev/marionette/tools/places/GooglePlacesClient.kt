@@ -21,7 +21,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
-class GooglePlacesClient(private val apiKey: String, private val client: OkHttpClient = Http.client) {
+class GooglePlacesClient(private val apiKey: String, private val client: OkHttpClient = Http.tools) {
     suspend fun search(text: String, center: LatLng, radiusMeters: Int, limit: Int, language: String): List<Place> =
         withContext(Dispatchers.IO) {
             val body = buildJsonObject {
@@ -52,7 +52,7 @@ class GooglePlacesClient(private val apiKey: String, private val client: OkHttpC
 
     companion object {
         const val FIELD_MASK = "places.displayName,places.formattedAddress,places.location,places.primaryType," +
-            "places.rating,places.userRatingCount,places.currentOpeningHours.openNow"
+            "places.rating,places.userRatingCount,places.currentOpeningHours.openNow,places.nationalPhoneNumber"
 
         fun parse(body: String): List<Place> = parseObject(body)["places"].arr().orEmpty().mapNotNull { element ->
             val p = element.obj() ?: return@mapNotNull null
@@ -65,6 +65,7 @@ class GooglePlacesClient(private val apiKey: String, private val client: OkHttpC
                 rating = p.double("rating"),
                 ratingCount = p.double("userRatingCount")?.toInt(),
                 openNow = p["currentOpeningHours"].obj()?.boolean("openNow"),
+                phone = p.string("nationalPhoneNumber"),
             )
         }
     }

@@ -6,20 +6,27 @@ import dev.marionette.core.parseObject
 import dev.marionette.core.string
 import dev.marionette.llm.toLlmException
 import dev.marionette.voice.AudioSpec
+import dev.marionette.core.LinkSpeed
 import dev.marionette.core.Logger
 import dev.marionette.settings.Languages
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
@@ -28,6 +35,7 @@ class OpenAiSpeechToText(
     private val apiKey: () -> String,
     private val baseUrl: String,
     private val model: String,
+    private val cacheDir: File,
 ) : SpeechToText {
     override val name = "cloud"
 
@@ -65,43 +73,109 @@ class OpenAiSpeechToText(
 
         override fun cancel() = scope.cancel()
 
+        override val resumable = true
+
         private fun snapshot(): ByteArray = synchronized(audio) { audio.toByteArray() }
     }
 
     private suspend fun transcribe(pcm: ByteArray, language: String, extraLanguages: List<String>): String {
-        if (extraLanguages.isEmpty()) return request(pcm, language, hint = null)
+        if (pcm.size < AudioSpec.SAMPLE_RATE / 2) return ""
+        val opus = withContext(Dispatchers.IO) { if (model !in wavOnly) OpusOgg.encode(pcm, cacheDir) else null }
+        if (extraLanguages.isEmpty()) return request(pcm, opus, language, hint = null)
         val languages = listOf(language) + extraLanguages
-        val text = request(pcm, language, hint = hint(languages))
-        if (!TranscriptScript.foreign(text, languages)) return text
-        Logger.i("Cloud STT returned another script, retrying in $language")
-        return request(pcm, language, hint = null)
+        if (LinkSpeed.measuredSlow()) {
+            val text = request(pcm, opus, language, hint = hint(languages))
+            if (!TranscriptScript.foreign(text, languages)) return text
+            Logger.i("Cloud STT returned another script, retrying in $language")
+            return request(pcm, opus, language, hint = null)
+        }
+        return supervisorScope {
+            val plain = async { request(pcm, opus, language, hint = null) }
+            val text = try {
+                request(pcm, opus, language, hint = hint(languages))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logger.w("Cloud STT hinted request failed, using the $language request", e)
+                return@supervisorScope plain.await()
+            }
+            if (!TranscriptScript.foreign(text, languages)) {
+                plain.cancel()
+                text
+            } else {
+                Logger.i("Cloud STT returned another script, using the $language request")
+                plain.await()
+            }
+        }
     }
 
-    private suspend fun request(pcm: ByteArray, language: String, hint: String?): String = withContext(Dispatchers.IO) {
-        if (pcm.size < AudioSpec.SAMPLE_RATE / 2) return@withContext ""
-        val started = System.currentTimeMillis()
+    private suspend fun request(pcm: ByteArray, opus: ByteArray?, language: String, hint: String?): String = withContext(Dispatchers.IO) {
+        retrying(pcm, opus.takeIf { model !in wavOnly }, language, hint)
+    }
+
+    private suspend fun retrying(pcm: ByteArray, first: ByteArray?, language: String, hint: String?): String {
+        var attempt = 0
+        var opus = first
+        while (true) {
+            val started = System.currentTimeMillis()
+            try {
+                return send(pcm, opus, language, hint).also {
+                    Logger.i("Cloud STT ${pcm.size / 32} ms of audio (${opus?.size ?: pcm.size} bytes) in ${System.currentTimeMillis() - started} ms")
+                }
+            } catch (e: OpusRejected) {
+                Logger.w("Cloud STT rejected Opus for $model, sending WAV")
+                wavOnly += model
+                opus = null
+            } catch (e: IOException) {
+                if (++attempt > RETRIES) throw e
+                Logger.w("Cloud STT attempt $attempt failed after ${System.currentTimeMillis() - started} ms, retrying", e)
+                delay(RETRY_DELAY_MILLIS * attempt)
+            }
+        }
+    }
+
+    private suspend fun send(pcm: ByteArray, opus: ByteArray?, language: String, hint: String?): String {
+        val file = if (opus != null) opus.toRequestBody("audio/ogg".toMediaType()) else wav(pcm).toRequestBody("audio/wav".toMediaType())
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("model", model)
             .addFormDataPart("response_format", "json")
             .apply {
-                if (hint != null) addFormDataPart("prompt", hint)
-                else language.substringBefore('-').takeIf { it.length == 2 }?.let { addFormDataPart("language", it) }
+                language.substringBefore('-').takeIf { it.length == 2 }?.let { addFormDataPart("language", it) }
+                hint?.let { addFormDataPart("prompt", it) }
             }
-            .addFormDataPart("file", "speech.wav", wav(pcm).toRequestBody("audio/wav".toMediaType()))
+            .addFormDataPart("file", if (opus != null) "speech.ogg" else "speech.wav", file)
             .build()
         val request = Request.Builder()
             .url("${baseUrl.trimEnd('/')}/audio/transcriptions")
             .header("Authorization", "Bearer ${apiKey()}")
             .post(body)
             .build()
-        Http.client.newCall(request).await().use { response ->
-            if (!response.isSuccessful) throw SttException(response.toLlmException().message ?: "HTTP ${response.code}")
-            parseObject(response.body.string()).string("text").orEmpty().trim()
-                .also { Logger.i("Cloud STT ${pcm.size / 32} ms of audio in ${System.currentTimeMillis() - started} ms") }
+        val started = System.currentTimeMillis()
+        Http.speech.newCall(request).await().use { response ->
+            response.header("openai-processing-ms")?.toLongOrNull()?.let { processing ->
+                LinkSpeed.record(body.contentLength().toInt(), System.currentTimeMillis() - started - processing)
+            }
+            if (!response.isSuccessful) {
+                val error = response.toLlmException()
+                if (opus != null && (response.code == 400 || response.code == 415) && FORMAT_ERROR.containsMatchIn(error.message.orEmpty())) throw OpusRejected()
+                throw SttException(error.message ?: "HTTP ${response.code}")
+            }
+            val text = parseObject(response.body.string()).string("text").orEmpty().trim()
+            return if (hint != null && echoesHint(text)) "" else text
         }
     }
 
+    private class OpusRejected : Exception()
+
     companion object {
+        private const val RETRIES = 2
+        private const val RETRY_DELAY_MILLIS = 700L
+        private val wavOnly = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+        private val FORMAT_ERROR = Regex("(?i)format|codec|ogg|opus|decode|unsupported|invalid file")
+
+        fun echoesHint(text: String): Boolean = text.contains("Transcribe in the language", ignoreCase = true) || text.contains("The speaker talks", ignoreCase = true)
+
         fun hint(languages: List<String>): String =
             "The speaker talks ${languages.map { Languages.locale(it).getDisplayLanguage(Locale.ENGLISH) }.distinct().joinToString(" or ")}. Transcribe in the language spoken."
         fun wav(pcm: ByteArray): ByteArray {

@@ -58,6 +58,17 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import dev.marionette.ui.theme.Extended
+import androidx.compose.foundation.shape.CircleShape
 import dev.marionette.ui.components.SwitchRow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.llm.GatewayCheck
@@ -104,14 +115,16 @@ fun ProviderPicker(selected: Provider, onSelect: (Provider) -> Unit, modifier: M
             border = if (chosen) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(Modifier.padding(20.dp), verticalAlignment = Alignment.Top) {
-                PuppetMark(size = 32.dp)
-                Spacer(Modifier.size(16.dp))
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+                RadioButton(selected = chosen, onClick = null, modifier = Modifier.padding(top = 2.dp))
+                Spacer(Modifier.size(12.dp))
+                PuppetMark(size = 28.dp)
+                Spacer(Modifier.size(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(Provider.OPENCLAW.title, style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.size(8.dp))
-                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primary) {
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
                             Text(
                                 stringResource(R.string.provider_recommended),
                                 style = MaterialTheme.typography.labelMedium,
@@ -122,7 +135,6 @@ fun ProviderPicker(selected: Provider, onSelect: (Provider) -> Unit, modifier: M
                     }
                     Text(stringResource(R.string.provider_openclaw_pitch), style = MaterialTheme.typography.bodyMedium)
                 }
-                RadioButton(selected = chosen, onClick = { onSelect(Provider.OPENCLAW) })
             }
         }
         val plain = Provider.entries.filter { it != Provider.OPENCLAW }
@@ -134,7 +146,7 @@ fun ProviderPicker(selected: Provider, onSelect: (Provider) -> Unit, modifier: M
                             i, n,
                             headline = provider.title,
                             supporting = stringResource(providerHint(provider)),
-                            trailing = { RadioButton(selected = provider == selected, onClick = { onSelect(provider) }) },
+                            leading = { RadioButton(selected = provider == selected, onClick = null) },
                             onClick = { onSelect(provider) },
                         )
                     }
@@ -151,15 +163,37 @@ fun ProviderPicker(selected: Provider, onSelect: (Provider) -> Unit, modifier: M
 }
 
 @Composable
-fun BackendSetup(form: BackendForm, actions: BackendActions, modifier: Modifier = Modifier) {
+fun BackendSetup(form: BackendForm, actions: BackendActions, modifier: Modifier = Modifier, compact: Boolean = false) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        if (form.isGateway) GatewaySetup(form, actions) else ApiSetup(form, actions)
+        if (form.isGateway) GatewaySetup(form, actions, compact) else ApiSetup(form, actions, compact)
+    }
+}
+
+@Composable
+private fun MoreOptions(compact: Boolean, content: @Composable () -> Unit) {
+    if (!compact) {
+        content()
+        return
+    }
+    var open by rememberSaveable { mutableStateOf(false) }
+    val expandedLabel = stringResource(R.string.state_expanded)
+    val collapsedLabel = stringResource(R.string.state_collapsed)
+    TextButton(
+        onClick = { open = !open },
+        modifier = Modifier.semantics { stateDescription = if (open) expandedLabel else collapsedLabel },
+    ) {
+        Text(stringResource(R.string.backend_more_options))
+        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+        Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(ButtonDefaults.IconSize))
+    }
+    AnimatedVisibility(open) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { content() }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ApiSetup(form: BackendForm, actions: BackendActions) {
+private fun ApiSetup(form: BackendForm, actions: BackendActions, compact: Boolean) {
     Text(stringResource(providerHint(form.provider)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     form.provider.keyUrl?.let { url ->
         val uri = LocalUriHandler.current
@@ -187,7 +221,15 @@ private fun ApiSetup(form: BackendForm, actions: BackendActions) {
             onValueChange = actions.onModel,
             label = { Text(stringResource(R.string.backend_model)) },
             singleLine = true,
-            supportingText = form.modelsError?.let { { Text(it, maxLines = 2) } },
+            supportingText = when {
+                form.modelsError != null -> {
+                    { Text(form.modelsError, maxLines = 2) }
+                }
+                form.model.isBlank() -> {
+                    { Text(stringResource(R.string.backend_model_needed)) }
+                }
+                else -> null
+            },
             trailingIcon = {
                 if (form.loadingModels) {
                     LoadingIndicator(Modifier.size(24.dp))
@@ -212,15 +254,17 @@ private fun ApiSetup(form: BackendForm, actions: BackendActions) {
             }
         }
     }
-    SettingsGroup(null) {
-        item { i, n -> SendInstructionsRow(i, n) }
+    if (!compact) {
+        SettingsGroup(null) {
+            item { i, n -> SendInstructionsRow(i, n) }
+        }
     }
     TestSection(form, actions)
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun GatewaySetup(form: BackendForm, actions: BackendActions) {
+private fun GatewaySetup(form: BackendForm, actions: BackendActions, compact: Boolean) {
     Text(stringResource(R.string.backend_hint_openclaw), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     OutlinedTextField(
         value = form.baseUrl,
@@ -267,37 +311,42 @@ private fun GatewaySetup(form: BackendForm, actions: BackendActions) {
                     i, n,
                     headline = OpenClawGateway.agentName(id) ?: stringResource(R.string.gateway_agent_default),
                     supporting = if (id == OpenClawGateway.DEFAULT_AGENT) stringResource(R.string.gateway_agent_default_body) else null,
-                    trailing = { RadioButton(selected = id == form.model, onClick = { actions.onModel(id) }) },
+                    leading = { RadioButton(selected = id == form.model, onClick = null) },
+                    modifier = Modifier.semantics { role = Role.RadioButton; selected = id == form.model },
                     onClick = { actions.onModel(id) },
                 )
             }
         }
     }
-    AgentSetupCard()
-    SettingsGroup(null) {
-        item { i, n -> SendContextRow(i, n) }
-    }
-    SettingsGroup(stringResource(R.string.conversation_mode)) {
-        item { i, n ->
-            SettingsRow(
-                i, n,
-                headline = stringResource(R.string.conversation_fresh),
-                supporting = stringResource(R.string.conversation_fresh_body),
-                trailing = { RadioButton(selected = !form.continueConversation, onClick = { actions.onContinueConversation(false) }) },
-                onClick = { actions.onContinueConversation(false) },
-            )
+    MoreOptions(compact) {
+        AgentSetupCard()
+        SettingsGroup(null) {
+            item { i, n -> SendContextRow(i, n) }
         }
-        item { i, n ->
-            SettingsRow(
-                i, n,
-                headline = stringResource(R.string.conversation_continuous),
-                supporting = stringResource(R.string.conversation_continuous_body),
-                trailing = { RadioButton(selected = form.continueConversation, onClick = { actions.onContinueConversation(true) }) },
-                onClick = { actions.onContinueConversation(true) },
-            )
+        SettingsGroup(stringResource(R.string.conversation_mode)) {
+            item { i, n ->
+                SettingsRow(
+                    i, n,
+                    headline = stringResource(R.string.conversation_fresh),
+                    supporting = stringResource(R.string.conversation_fresh_body),
+                    leading = { RadioButton(selected = !form.continueConversation, onClick = null) },
+                    modifier = Modifier.semantics { role = Role.RadioButton; selected = !form.continueConversation },
+                    onClick = { actions.onContinueConversation(false) },
+                )
+            }
+            item { i, n ->
+                SettingsRow(
+                    i, n,
+                    headline = stringResource(R.string.conversation_continuous),
+                    supporting = stringResource(R.string.conversation_continuous_body),
+                    leading = { RadioButton(selected = form.continueConversation, onClick = null) },
+                    modifier = Modifier.semantics { role = Role.RadioButton; selected = form.continueConversation },
+                    onClick = { actions.onContinueConversation(true) },
+                )
+            }
         }
+        LiveProgressSection(form, actions)
     }
-    LiveProgressSection(form, actions)
     TestSection(form, actions)
 }
 
@@ -392,7 +441,7 @@ private fun SecretInput(
         keyboardActions = KeyboardActions(onGo = { onGo() }),
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
-                Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, null)
+                Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, stringResource(if (visible) R.string.action_hide_secret else R.string.action_show_secret))
             }
         },
         modifier = Modifier.fillMaxWidth(),
@@ -436,13 +485,13 @@ fun SendInstructionsRow(index: Int, count: Int) {
 internal fun CommandBox(command: String, monospace: Boolean = true) {
     val context = LocalContext.current
     Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 4.dp)) {
             Text(
                 command,
                 style = if (monospace) MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.padding(end = 8.dp),
             )
-            TextButton(onClick = {
+            TextButton(modifier = Modifier.align(Alignment.End), onClick = {
                 context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("command", command))
             }) {
                 Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp))
@@ -464,7 +513,7 @@ private fun ProbeCard(result: ProbeResult) {
 
 @Composable
 private fun StatusCard(ok: Boolean?, title: String, body: String?) {
-    val success = Color(0xFF34A853)
+    val success = Extended.colors.success
     val container = when (ok) {
         true -> success.copy(alpha = 0.12f)
         false -> MaterialTheme.colorScheme.errorContainer
@@ -480,9 +529,9 @@ private fun StatusCard(ok: Boolean?, title: String, body: String?) {
         false -> Icons.Rounded.ErrorOutline
         null -> Icons.Rounded.Info
     }
-    Surface(shape = RoundedCornerShape(20.dp), color = container, modifier = Modifier.fillMaxWidth()) {
+    Surface(shape = MaterialTheme.shapes.large, color = container, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
-            Icon(icon, null, tint = tint)
+            Icon(icon, null, Modifier.padding(top = 2.dp).size(20.dp), tint = tint)
             Spacer(Modifier.size(12.dp))
             Column {
                 Text(title, style = MaterialTheme.typography.titleSmall)

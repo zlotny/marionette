@@ -1,6 +1,5 @@
 package dev.marionette.ui.theme
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Brush
@@ -17,10 +16,4 @@ object Brand {
     @Composable
     @ReadOnlyComposable
     fun textBrush(): Brush = Brush.linearGradient(listOf(Blue, Violet, Magenta))
-
-    @Composable
-    @ReadOnlyComposable
-    fun subtleBrush(): Brush = Brush.linearGradient(
-        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary),
-    )
 }

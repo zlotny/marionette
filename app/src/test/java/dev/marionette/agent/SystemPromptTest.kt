@@ -14,25 +14,29 @@ class SystemPromptTest {
     private val plain = AppSettings(provider = Provider.OPENAI, agentName = "Ada")
 
     @Test
-    fun plainModelGetsInstructionsAndContext() {
-        assertEquals("You are Ada.\n\nPhone context:\ntime: now", prompt.build(plain, "time: now"))
+    fun plainModelGetsInstructions() {
+        assertEquals("You are Ada.", prompt.build(plain))
     }
 
     @Test
     fun customInstructionsReplaceDefault() {
-        assertEquals("Be brief, Ada.", prompt.build(plain.copy(instructions = "Be brief, {{name}}.", sendContext = false), "time: now"))
+        assertEquals("Be brief, Ada.", prompt.build(plain.copy(instructions = "Be brief, {{name}}.")))
     }
 
     @Test
     fun instructionsCanBeOff() {
-        assertEquals("Phone context:\ntime: now", prompt.build(plain.copy(sendInstructions = false), "time: now"))
+        assertEquals("", prompt.build(plain.copy(sendInstructions = false)))
     }
 
     @Test
-    fun agentGetsOnlyContext() {
-        val agent = plain.copy(provider = Provider.OPENCLAW)
-        assertEquals("Phone context:\ntime: now", prompt.build(agent, "time: now"))
-        assertEquals("", prompt.build(agent.copy(sendContext = false), "time: now"))
+    fun agentGetsNoSystemText() {
+        assertEquals("", prompt.build(plain.copy(provider = Provider.OPENCLAW)))
+    }
+
+    @Test
+    fun contextLeadsTheUserMessage() {
+        assertEquals("<phone_context>\ntime: now\n</phone_context>\n\npon música", SystemPrompt.withContext("pon música", "time: now"))
+        assertEquals("pon música", SystemPrompt.withContext("pon música", ""))
     }
 
     @Test

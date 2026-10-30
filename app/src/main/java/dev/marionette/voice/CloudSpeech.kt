@@ -57,7 +57,7 @@ object CloudSpeech {
         put("response_format", "pcm")
     }
 
-    suspend fun stream(voice: CloudVoice, text: String, target: SpeechStream, client: OkHttpClient = Http.client) = withContext(Dispatchers.IO) {
+    suspend fun stream(voice: CloudVoice, text: String, target: SpeechStream, client: OkHttpClient = Http.tts) = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("${voice.baseUrl.trimEnd('/')}/audio/speech")
             .header("Authorization", "Bearer ${voice.key}")

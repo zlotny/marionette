@@ -1,5 +1,6 @@
 package dev.marionette.ui.settings
 
+import dev.marionette.ui.components.settingsPanelColor
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.R
+import androidx.compose.foundation.layout.heightIn
 import dev.marionette.access.Access
 import dev.marionette.ui.access.AccessList
 import dev.marionette.ui.access.rememberAccessState
@@ -147,8 +149,8 @@ private fun StopEnrollment(draft: StopDraft, onLabel: (String) -> Unit, onClose:
         onDone = onClose,
     )
 
-    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Surface(shape = RoundedCornerShape(28.dp), color = settingsPanelColor(), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             if (voice.phase == VoicePhase.ENROLLING || guided.saving || guided.active) {
                 GuidedEnrollmentContent(guided, draft.label)
                 return@Column
@@ -174,7 +176,7 @@ private fun StopEnrollment(draft: StopDraft, onLabel: (String) -> Unit, onClose:
                 Button(
                     onClick = { guided.begin(append = draft.append) },
                     enabled = draft.label.isNotBlank(),
-                    modifier = Modifier.height(48.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Icon(Icons.Rounded.Mic, null)
                     Spacer(Modifier.size(8.dp))
@@ -201,8 +203,8 @@ private fun StopTest(lastStopAt: Long) {
             heard = false
         }
     }
-    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Surface(shape = RoundedCornerShape(28.dp), color = settingsPanelColor(), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             AnimatedContent(
                 targetState = heard,
                 transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.8f)) togetherWith fadeOut() },

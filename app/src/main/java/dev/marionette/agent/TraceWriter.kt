@@ -1,6 +1,7 @@
 package dev.marionette.agent
 
 import android.content.Context
+import dev.marionette.BuildConfig
 import dev.marionette.core.AppJson
 import dev.marionette.core.Logger
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +14,7 @@ class TraceWriter(context: Context) {
 
     suspend fun write(turnId: Long, trace: JsonObject) = withContext(Dispatchers.IO) {
         val text = AppJson.encodeToString(JsonObject.serializer(), trace)
-        Logger.i("TRACE $text")
+        if (BuildConfig.DEBUG) Logger.i("TRACE $text")
         File(directory, "turn-$turnId.json").writeText(text)
         directory.listFiles()?.sortedByDescending { it.name }?.drop(MAX_TRACES)?.forEach { it.delete() }
     }

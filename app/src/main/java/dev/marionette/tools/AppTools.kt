@@ -8,8 +8,10 @@ import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import dev.marionette.core.boolean
 import dev.marionette.core.int
 import dev.marionette.core.string
+import dev.marionette.launch.LaunchStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -18,7 +20,18 @@ import java.text.Normalizer
 data class InstalledApp(val label: String, val packageName: String)
 
 object InstalledApps {
+    private const val CACHE_MILLIS = 120_000L
+    private val MARKS = Regex("\\p{M}+")
+    private val NON_WORD = Regex("[^\\p{L}\\p{N}]+")
+
+    @Volatile private var cached: Pair<Long, List<InstalledApp>>? = null
+
     fun list(pm: PackageManager): List<InstalledApp> {
+        cached?.takeIf { android.os.SystemClock.elapsedRealtime() - it.first < CACHE_MILLIS }?.let { return it.second }
+        return load(pm).also { cached = android.os.SystemClock.elapsedRealtime() to it }
+    }
+
+    private fun load(pm: PackageManager): List<InstalledApp> {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val infos: List<ResolveInfo> = if (Build.VERSION.SDK_INT >= 33) {
             pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
@@ -32,7 +45,7 @@ object InstalledApps {
     }
 
     fun fold(text: String): String =
-        Normalizer.normalize(text.lowercase(), Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").replace(Regex("[^a-z0-9]+"), " ").trim()
+        Normalizer.normalize(text.lowercase(), Normalizer.Form.NFD).replace(MARKS, "").replace(NON_WORD, " ").trim()
 
     fun match(apps: List<InstalledApp>, query: String): List<InstalledApp> {
         val q = fold(query)
@@ -78,13 +91,19 @@ class ListAppsTool : Tool {
 
 class OpenAppTool : Tool {
     override val name = "open_app"
+    override val endsTurnOnlyWithText = true
     override val category = ToolCategory.APPS
-    override val description = "Open an installed app by name or package. If the phone is locked, the app opens after the user unlocks."
+    override val description =
+        "Open an installed app by name or package. If the phone is locked, the app opens after the user unlocks. " +
+            "read_screen returns its screen like ui_read, so you can go straight to ui_act."
     override val parameters = schema {
         string("app", "App name as the user says it (\"WhatsApp\", \"Spotify\") or a package name.", required = true)
+        boolean("read_screen", "Return the app's screen once it shows, to operate it next.")
     }
 
     override fun summary(args: JsonObject) = args.string("app").orEmpty()
+
+    override fun endsTurn(args: JsonObject, result: JsonObject) = args.boolean("read_screen") != true && result.isDone()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val query = args.string("app") ?: return ToolResults.error("bad_arguments", "app is required.")
@@ -92,7 +111,15 @@ class OpenAppTool : Tool {
         val matches = InstalledApps.match(InstalledApps.list(pm), query)
         val app = matches.firstOrNull() ?: return ToolResults.error("not_installed", "No installed app matches \"$query\".")
         val intent = pm.getLaunchIntentForPackage(app.packageName) ?: return ToolResults.error("not_launchable", "${app.label} has no launcher screen.")
-        return launchResult(ctx.launcher.launch(intent, app.label), app.label, "app" to app.label, "package" to app.packageName)
+        val status = ctx.launcher.launch(intent, app.label)
+        if (status == LaunchStatus.STARTED && args.boolean("read_screen") == true) {
+            ScreenWaits.readWhenShown(ctx, app.packageName, SHOW_WAIT_MILLIS)?.let { return it }
+        }
+        return launchResult(status, app.label, "app" to app.label, "package" to app.packageName)
+    }
+
+    companion object {
+        const val SHOW_WAIT_MILLIS = 4_000L
     }
 }
 
@@ -101,10 +128,11 @@ class OpenUrlTool : Tool {
     override val category = ToolCategory.APPS
     override val description =
         "Open a URL or deep link (https, tel, mailto, geo, app schemes like spotify: or whatsapp://send?phone=...&text=...). " +
-            "Set package to force a specific app."
+            "Set app to force a specific app."
     override val parameters = schema {
         string("url", "The URL or URI.", required = true)
-        string("package", "Optional package name of the app that must handle it.")
+        string("app", "App name or package that must open it. Optional.")
+        boolean("read_screen", "Return the screen once the app shows it, to operate it next.")
     }
 
     override fun summary(args: JsonObject) = args.string("url")?.take(60).orEmpty()
@@ -112,9 +140,18 @@ class OpenUrlTool : Tool {
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val url = args.string("url")?.trim()?.takeIf { it.isNotEmpty() } ?: return ToolResults.error("bad_arguments", "url is required.")
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-        args.string("package")?.takeIf { it.isNotBlank() }?.let { intent.setPackage(it) }
+        args.firstString("app", "package")?.let { query ->
+            val pkg = if ('.' in query && ' ' !in query) query else InstalledApps.match(InstalledApps.list(ctx.context.packageManager), query).firstOrNull()?.packageName
+                ?: return ToolResults.error("not_installed", "No installed app matches \"$query\".")
+            intent.setPackage(pkg)
+        }
         if (intent.resolveActivity(ctx.context.packageManager) == null) return ToolResults.error("no_handler", "No app can open $url.")
-        return launchResult(ctx.launcher.launch(intent, url), "The link")
+        val status = ctx.launcher.launch(intent, url)
+        if (status == LaunchStatus.STARTED && args.boolean("read_screen") == true) {
+            val pkg = intent.resolveActivity(ctx.context.packageManager)?.packageName
+            if (pkg != null) ScreenWaits.readWhenShown(ctx, pkg, OpenAppTool.SHOW_WAIT_MILLIS)?.let { return it }
+        }
+        return launchResult(status, "The link")
     }
 }
 
@@ -151,10 +188,11 @@ class OpenSettingsTool : Tool {
     override val category = ToolCategory.DEVICE
     override val description =
         "Open an Android settings screen or quick panel. Use for things apps cannot change directly, such as Wi-Fi, mobile data, " +
-            "Bluetooth pairing or screen brightness. 'app' opens the settings page of one app."
+            "Bluetooth pairing. 'app' opens the settings page of one app."
     override val parameters = schema {
         string("page", "Settings page.", required = true, enum = PAGES.keys.toList() + "app")
         string("app", "App name or package, for page = app.")
+        boolean("read_screen", "Return the settings screen once it shows, to tap a switch next.")
     }
 
     override fun summary(args: JsonObject) = args.string("page")?.replace('_', ' ').orEmpty()
@@ -169,7 +207,11 @@ class OpenSettingsTool : Tool {
         } else {
             Intent(PAGES[page] ?: return ToolResults.error("bad_arguments", "Unknown page $page."))
         }
-        return launchResult(ctx.launcher.launch(intent, "settings $page"), "The settings screen")
+        val status = ctx.launcher.launch(intent, "settings $page")
+        if (status == LaunchStatus.STARTED && args.boolean("read_screen") == true) {
+            ScreenWaits.readAfterLaunch(ctx, OpenAppTool.SHOW_WAIT_MILLIS)?.let { return it }
+        }
+        return launchResult(status, "The settings screen")
     }
 
     companion object {
@@ -209,6 +251,8 @@ class CopyTextTool : Tool {
     }
 
     override fun summary(args: JsonObject) = args.string("text")?.take(40).orEmpty()
+
+    override fun endsTurn(args: JsonObject, result: JsonObject) = result.isDone()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val text = args.string("text")?.takeIf { it.isNotEmpty() } ?: return ToolResults.error("bad_arguments", "text is required.")

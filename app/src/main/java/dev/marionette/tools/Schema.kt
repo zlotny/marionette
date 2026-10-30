@@ -39,16 +39,30 @@ class SchemaBuilder {
         put("description", description)
     }
 
-    fun stringArray(name: String, description: String, required: Boolean = false) = property(name, required) {
+    fun stringArray(name: String, description: String, required: Boolean = false, enum: List<String>? = null) = property(name, required) {
         put("type", "array")
         put("description", description)
-        putJsonObject("items") { put("type", "string") }
+        putJsonObject("items") {
+            put("type", "string")
+            enum?.let { values -> putJsonArray("enum") { values.forEach { add(it) } } }
+        }
+    }
+
+    fun obj(name: String, description: String, required: Boolean = false) = property(name, required) {
+        put("type", "object")
+        put("description", description)
+    }
+
+    fun objectArray(name: String, description: String, required: Boolean = false, items: SchemaBuilder.() -> Unit) = property(name, required) {
+        put("type", "array")
+        put("description", description)
+        put("items", SchemaBuilder().apply(items).build())
     }
 
     fun build(): JsonObject = buildJsonObject {
         put("type", "object")
         putJsonObject("properties") { properties.forEach { (k, v) -> put(k, v) } }
-        putJsonArray("required") { required.forEach { add(it) } }
+        if (required.isNotEmpty()) putJsonArray("required") { required.forEach { add(it) } }
     }
 }
 

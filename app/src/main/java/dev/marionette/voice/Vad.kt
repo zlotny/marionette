@@ -15,22 +15,28 @@ class Vad(assets: AssetManager) : AutoCloseable {
     )
     private var state = FloatArray(STATE_SIZE)
     private val context = FloatArray(CONTEXT)
-    private val pending = ArrayList<Float>()
+    private val pending = FloatArray(WINDOW)
+    private var filled = 0
 
     fun reset() {
         state = FloatArray(STATE_SIZE)
         context.fill(0f)
-        pending.clear()
+        filled = 0
     }
 
     fun accept(samples: FloatArray): Float? {
-        samples.forEach { pending += it }
         var maxProbability: Float? = null
-        while (pending.size >= WINDOW) {
-            val window = FloatArray(WINDOW) { pending[it] }
-            pending.subList(0, WINDOW).clear()
-            val p = infer(window)
-            maxProbability = maxOf(maxProbability ?: p, p)
+        var offset = 0
+        while (offset < samples.size) {
+            val take = minOf(WINDOW - filled, samples.size - offset)
+            samples.copyInto(pending, filled, offset, offset + take)
+            filled += take
+            offset += take
+            if (filled == WINDOW) {
+                val p = infer(pending.copyOf())
+                filled = 0
+                maxProbability = maxOf(maxProbability ?: p, p)
+            }
         }
         return maxProbability
     }

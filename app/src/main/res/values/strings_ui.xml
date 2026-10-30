@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="step_running">Running</string>
+    <string name="step_done">Done</string>
+    <string name="step_failed">Failed</string>
+    <string name="step_declined">Declined</string>
+    <string name="action_show_secret">Show</string>
+    <string name="action_hide_secret">Hide</string>
+    <string name="attachment_image">Image</string>
+    <string name="action_open">Open</string>
+    <string name="state_expanded">Expanded</string>
+    <string name="state_collapsed">Collapsed</string>
+    <string name="home_jump_latest">Go to the latest message</string>
+    <string name="access_blocked">Blocked. Tap Open settings and allow it under Permissions.</string>
+    <string name="access_open_settings">Open settings</string>
+    <string name="access_restricted_hint">Greyed out? Open App info, tap ⋮, choose Allow restricted settings, then come back.</string>
+    <string name="wake_phrase_default">Hey %1$s</string>
+    <string name="wake_phrase_helper">Use 2 to 4 words you do not say often.</string>
+    <string name="backend_more_options">More options</string>
+    <string name="backend_model_needed">Pick a model to continue.</string>
+</resources>

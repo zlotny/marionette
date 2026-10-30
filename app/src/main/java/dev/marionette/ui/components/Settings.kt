@@ -41,15 +41,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import dev.marionette.R
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
@@ -62,6 +64,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
+
+private val ROW_GAP = 12.dp
 
 class SettingsGroupScope internal constructor() {
     internal val items = mutableListOf<@Composable (index: Int, count: Int) -> Unit>()
@@ -80,7 +84,7 @@ fun SettingsGroup(title: String?, modifier: Modifier = Modifier, block: Settings
                 title,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, top = 8.dp),
+                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, top = 8.dp).semantics { heading() },
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
@@ -99,8 +103,32 @@ fun SettingsRow(
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
-    onClick: () -> Unit = {},
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
+    if (onClick == null) {
+        Surface(
+            shape = ListItemDefaults.segmentedShapes(index, count).shape,
+            color = ListItemDefaults.segmentedColors().containerColor,
+            modifier = modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.heightIn(min = if (supporting == null) 56.dp else 72.dp).padding(ListItemDefaults.ContentPadding), verticalAlignment = Alignment.CenterVertically) {
+                leading?.let {
+                    it()
+                    Spacer(Modifier.size(ROW_GAP))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(headline, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    supporting?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+                trailing?.let {
+                    Spacer(Modifier.size(ROW_GAP))
+                    it()
+                }
+            }
+        }
+        return
+    }
     SegmentedListItem(
         onClick = onClick,
         shapes = ListItemDefaults.segmentedShapes(index, count),
@@ -108,7 +136,9 @@ fun SettingsRow(
         leadingContent = leading,
         trailingContent = trailing,
         supportingContent = supporting?.let { { Text(it) } },
+        verticalAlignment = Alignment.CenterVertically,
         colors = ListItemDefaults.segmentedColors(),
+        modifier = modifier,
     ) {
         Text(headline)
     }
@@ -125,6 +155,7 @@ fun SwitchRow(
     enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
     SettingsRow(
         index = index,
         count = count,
@@ -132,15 +163,19 @@ fun SwitchRow(
         supporting = supporting,
         leading = leading,
         enabled = enabled,
-        trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled) },
-        onClick = { onCheckedChange(!checked) },
+        modifier = Modifier.semantics { role = Role.Switch; toggleableState = ToggleableState(checked) },
+        trailing = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+        onClick = {
+            haptics.performHapticFeedback(if (checked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+            onCheckedChange(!checked)
+        },
     )
 }
 
 @Composable
 fun SettingsIcon(icon: ImageVector, container: Color = MaterialTheme.colorScheme.primaryContainer, content: Color = MaterialTheme.colorScheme.onPrimaryContainer) {
     Box(Modifier.size(40.dp).clip(CircleShape).background(container), contentAlignment = Alignment.Center) {
-        Icon(icon, null, Modifier.size(22.dp), tint = content)
+        Icon(icon, null, Modifier.size(24.dp), tint = content)
     }
 }
 
@@ -158,6 +193,7 @@ fun RadioCardRow(
         headline = headline,
         supporting = supporting,
         leading = { RadioButton(selected = selected, onClick = null) },
+        modifier = Modifier.semantics { role = Role.RadioButton; this.selected = selected },
         onClick = onClick,
     )
 }
@@ -177,6 +213,7 @@ fun <T> ChoiceRow(
     describe: (@Composable (T) -> ChoiceDetail?)? = null,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
     val selectedLabel = options.firstOrNull { it.first == selected }?.second
     val selectedDetail = describe?.invoke(selected)?.text
     SettingsRow(
@@ -197,11 +234,12 @@ fun <T> ChoiceRow(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 52.dp)
+                                .heightIn(min = 56.dp)
                                 .selectable(
                                     selected = value == selected,
                                     role = Role.RadioButton,
                                     onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                                         onSelect(value)
                                         open = false
                                     },
@@ -210,7 +248,7 @@ fun <T> ChoiceRow(
                         ) {
                             RadioButton(selected = value == selected, onClick = null)
                             val detail = describe?.invoke(value)
-                            Column(Modifier.padding(start = 16.dp, top = 6.dp, bottom = 6.dp)) {
+                            Column(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp)) {
                                 Text(label, style = MaterialTheme.typography.bodyLarge)
                                 detail?.let {
                                     Text(it.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -258,7 +296,7 @@ fun <T> MultiChoiceRow(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 52.dp)
+                                .heightIn(min = 56.dp)
                                 .toggleable(
                                     value = checked,
                                     role = Role.Checkbox,
@@ -307,25 +345,26 @@ fun SliderRow(
     supporting: String? = null,
     onValueChangeFinished: () -> Unit = {},
 ) {
-    SegmentedListItem(
-        onClick = {},
-        shapes = ListItemDefaults.segmentedShapes(index, count),
-        colors = ListItemDefaults.segmentedColors(),
-        trailingContent = { Text(valueLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) },
-        supportingContent = {
-            Column {
-                supporting?.let { Text(it) }
-                Slider(
-                    value = value,
-                    onValueChange = onValueChange,
-                    valueRange = valueRange,
-                    steps = steps,
-                    onValueChangeFinished = onValueChangeFinished,
-                )
+    val haptics = LocalHapticFeedback.current
+    SettingsCard(index, count) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(headline, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(valueLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
-        },
-    ) {
-        Text(headline)
+            supporting?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Slider(
+                value = value,
+                onValueChange = {
+                    if (steps > 0) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    onValueChange(it)
+                },
+                valueRange = valueRange,
+                steps = steps,
+                onValueChangeFinished = onValueChangeFinished,
+                modifier = Modifier.semantics { stateDescription = valueLabel },
+            )
+        }
     }
 }
 
@@ -336,33 +375,6 @@ fun SettingsNote(text: String, modifier: Modifier = Modifier) {
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier.padding(horizontal = 16.dp),
-    )
-}
-
-@Composable
-fun SecretField(label: String, saved: String, onSave: (String) -> Unit, modifier: Modifier = Modifier, supporting: String? = null) {
-    var value by rememberSaveable { mutableStateOf(saved) }
-    var visible by rememberSaveable { mutableStateOf(false) }
-    OutlinedTextField(
-        value = value,
-        onValueChange = {
-            value = it
-            onSave(it.trim())
-        },
-        label = { Text(label) },
-        singleLine = true,
-        supportingText = supporting?.let { { Text(it) } },
-        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        trailingIcon = {
-            IconButton(onClick = { visible = !visible }) {
-                Icon(
-                    if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                    null,
-                )
-            }
-        },
-        modifier = modifier.fillMaxWidth(),
     )
 }
 
@@ -431,6 +443,10 @@ fun TextDialog(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
+fun settingsPanelColor(): Color = ListItemDefaults.segmentedColors().containerColor
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
 fun SettingsCard(index: Int, count: Int, content: @Composable ColumnScope.() -> Unit) {
     Surface(
         shape = ListItemDefaults.segmentedShapes(index, count).shape,
@@ -454,8 +470,9 @@ fun NestedRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .heightIn(min = 56.dp)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(start = 72.dp, end = 16.dp, top = 10.dp, bottom = 12.dp),
+            .padding(start = 72.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha))
@@ -491,11 +508,11 @@ fun CardRow(
             .fillMaxWidth()
             .heightIn(min = 72.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(ListItemDefaults.ContentPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         leading()
-        Spacer(Modifier.size(16.dp))
+        Spacer(Modifier.size(ROW_GAP))
         Column(Modifier.weight(1f)) {
             Text(headline, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             supporting?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }

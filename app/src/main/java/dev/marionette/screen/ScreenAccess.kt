@@ -43,13 +43,17 @@ class MarionetteAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    fun forgetScreen() {
+        lastNodes = emptyList()
+    }
+
     fun foregroundPackage(): String? = rootInActiveWindow?.packageName?.toString()
 
     @Volatile
     var lastPackage: String? = null
         private set
 
-    fun snapshot(maxNodes: Int, blocked: Set<String> = emptySet()): List<ScreenNode> {
+    fun snapshot(maxNodes: Int, blocked: Set<String> = emptySet(), remember: Boolean = true): List<ScreenNode> {
         val active = rootInActiveWindow
         val fallback = windows.asSequence()
             .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
@@ -61,11 +65,11 @@ class MarionetteAccessibilityService : AccessibilityService() {
             val nodes = snapshot(root, maxNodes)
             if (nodes.isNotEmpty()) {
                 lastPackage = root.packageName?.toString()
-                return nodes.also { lastNodes = it }
+                return nodes.also { if (remember) lastNodes = it }
             }
         }
         lastPackage = active?.packageName?.toString()
-        return emptyList<ScreenNode>().also { lastNodes = it }
+        return emptyList<ScreenNode>().also { if (remember) lastNodes = it }
     }
 
     private fun snapshot(root: AccessibilityNodeInfo, maxNodes: Int): List<ScreenNode> {
@@ -75,7 +79,7 @@ class MarionetteAccessibilityService : AccessibilityService() {
             if (node == null || out.size >= maxNodes || depth > 60) return
             if (!node.isVisibleToUser) return
             val text = listOfNotNull(
-                node.text?.toString()?.takeIf { it.isNotBlank() },
+                node.text?.toString()?.takeIf { it.isNotBlank() && !node.isPassword },
                 node.contentDescription?.toString()?.takeIf { it.isNotBlank() },
                 node.hintText?.toString()?.takeIf { it.isNotBlank() && node.text.isNullOrBlank() }?.let { "hint: $it" },
             ).distinct().joinToString(" | ").take(200).ifBlank { null }
@@ -117,6 +121,9 @@ class MarionetteAccessibilityService : AccessibilityService() {
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
         return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
     }
+
+    fun submit(node: AccessibilityNodeInfo): Boolean =
+        node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
 
     fun scroll(node: AccessibilityNodeInfo?, forward: Boolean): Boolean {
         val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD

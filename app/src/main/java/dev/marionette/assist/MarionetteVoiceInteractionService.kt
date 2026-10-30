@@ -1,7 +1,10 @@
 package dev.marionette.assist
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.service.voice.VoiceInteractionService
+import androidx.core.content.ContextCompat
 import dev.marionette.MarionetteApp
 import dev.marionette.core.Logger
 import dev.marionette.voice.VoiceService
@@ -11,7 +14,9 @@ class MarionetteVoiceInteractionService : VoiceInteractionService() {
         super.onReady()
         instance = this
         Logger.i("Voice interaction service ready")
-        if (MarionetteApp.graph.settings.current.onboarded) VoiceService.send(this, VoiceService.ACTION_START)
+        val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (MarionetteApp.graph.settings.current.onboarded && micGranted) runCatching { VoiceService.send(this, VoiceService.ACTION_START) }
+            .onFailure { Logger.w("Voice service start refused", it) }
     }
 
     override fun onShutdown() {

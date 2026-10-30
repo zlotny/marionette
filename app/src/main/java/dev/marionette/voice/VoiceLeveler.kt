@@ -43,17 +43,11 @@ class VoiceLeveler(private val rate: Int = AudioSpec.SAMPLE_RATE) {
             var gain = 10f.pow(gainDb / 20)
             val step = 10f.pow((next - gainDb) / 20 / length)
             for (i in start until end) {
-                output[i] = limit(input[i] * gain)
+                output[i] = softLimit(input[i] * gain)
                 gain *= step
             }
         }
         gainDb = next
-    }
-
-    private fun limit(x: Float): Float {
-        val a = abs(x)
-        if (a <= CEILING) return x
-        return (CEILING + (1 - CEILING) * tanh((a - CEILING) / (1 - CEILING))).withSign(x)
     }
 
     private companion object {
@@ -67,6 +61,13 @@ class VoiceLeveler(private val rate: Int = AudioSpec.SAMPLE_RATE) {
         const val SPEECH_TAU_SECONDS = 0.4f
         const val RISE_DB = 12f
         const val FALL_DB = 30f
-        const val CEILING = 0.89f
     }
+}
+
+private const val CEILING = 0.89f
+
+fun softLimit(x: Float): Float {
+    val a = abs(x)
+    if (a <= CEILING) return x
+    return (CEILING + (1 - CEILING) * tanh((a - CEILING) / (1 - CEILING))).withSign(x)
 }

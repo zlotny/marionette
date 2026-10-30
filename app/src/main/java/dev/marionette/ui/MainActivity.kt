@@ -11,7 +11,16 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import dev.marionette.ui.components.LocalMotion
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.BackEventCompat
@@ -79,17 +88,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
     @Composable
     private fun AppNavHost(nav: NavHostController, startOnboarding: Boolean) {
+        val scheme = MaterialTheme.motionScheme
+        val reduced = LocalMotion.current.reduced
+        val dir = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
         NavHost(
             navController = nav,
             startDestination = if (startOnboarding) OnboardingRoute else HomeRoute,
-            enterTransition = { slideInHorizontally { it / 4 } + fadeIn() },
-            exitTransition = { fadeOut() },
-            popEnterTransition = { fadeIn() },
-            popExitTransition = { slideOutHorizontally { it / 4 } + fadeOut() },
-            predictivePopEnterTransition = { fadeIn() },
-            predictivePopExitTransition = { edge -> slideOutHorizontally { if (edge == BackEventCompat.EDGE_RIGHT) -it else it } },
+            enterTransition = {
+                if (reduced) fadeIn(scheme.fastEffectsSpec()) else slideInHorizontally(scheme.defaultSpatialSpec()) { dir * it / 5 } + fadeIn(scheme.defaultEffectsSpec())
+            },
+            exitTransition = {
+                if (reduced) fadeOut(scheme.fastEffectsSpec()) else slideOutHorizontally(scheme.defaultSpatialSpec()) { -dir * it / 10 } + fadeOut(scheme.fastEffectsSpec())
+            },
+            popEnterTransition = {
+                if (reduced) fadeIn(scheme.fastEffectsSpec()) else slideInHorizontally(scheme.defaultSpatialSpec()) { -dir * it / 10 } + fadeIn(scheme.defaultEffectsSpec())
+            },
+            popExitTransition = {
+                if (reduced) fadeOut(scheme.fastEffectsSpec()) else slideOutHorizontally(scheme.defaultSpatialSpec()) { dir * it / 5 } + fadeOut(scheme.fastEffectsSpec())
+            },
+            predictivePopEnterTransition = { scaleIn(tween(), initialScale = 0.95f) + fadeIn(tween()) },
+            predictivePopExitTransition = { edge ->
+                scaleOut(tween(), targetScale = 0.9f, transformOrigin = TransformOrigin(if (edge == BackEventCompat.EDGE_LEFT) 1f else 0f, 0.5f)) + fadeOut(tween())
+            },
         ) {
             composable<OnboardingRoute> {
                 OnboardingScreen(onDone = {

@@ -104,7 +104,7 @@ private fun CredentialDialog(credential: Credential, saved: String, onDismiss: (
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     trailingIcon = {
                         IconButton(onClick = { visible = !visible }) {
-                            Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, null)
+                            Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, stringResource(if (visible) R.string.action_hide_secret else R.string.action_show_secret))
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),

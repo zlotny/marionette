@@ -15,7 +15,9 @@ class MicPace(private val context: Context, private val chunkNanos: Long) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || session != null) return
         session = runCatching {
-            context.getSystemService(PerformanceHintManager::class.java)?.createHintSession(intArrayOf(Process.myTid()), chunkNanos)
+            context.getSystemService(PerformanceHintManager::class.java)?.createHintSession(intArrayOf(Process.myTid()), chunkNanos)?.also {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) it.setPreferPowerEfficiency(true)
+            }
         }.onFailure { Logger.w("Performance hint unavailable", it) }.getOrNull()
     }
 

@@ -1,6 +1,7 @@
 package dev.marionette.voice.wake
 
 import android.content.Context
+import dev.marionette.BuildConfig
 import dev.marionette.core.Logger
 import dev.marionette.voice.AudioSpec
 import dev.marionette.voice.stt.OpenAiSpeechToText
@@ -44,7 +45,7 @@ class WakeHitRecorder(private val dir: File?) : AutoCloseable {
                 lastEvent = now
                 save("wake", hit, now)
             }
-            hit.blocked && idle && pending == null && now - lastEvent > QUIET_MILLIS -> {
+            hit.blocked && idle && pending == null && now - lastEvent > BLOCKED_GAP_MILLIS -> {
                 lastEvent = now
                 pending = hit
                 pendingAt = now
@@ -89,7 +90,7 @@ class WakeHitRecorder(private val dir: File?) : AutoCloseable {
             marked.drop(FALSE_CAP).forEach { it.delete() }
         }
 
-        fun dir(context: Context): File? = context.getExternalFilesDir(null)?.let { File(it, "wake-hits") }
+        fun dir(context: Context): File? = (if (BuildConfig.DEBUG) context.getExternalFilesDir(null) else context.filesDir)?.let { File(it, "wake-hits") }
 
         fun list(dir: File): List<Hit> = dir.listFiles { f -> f.extension == "wav" }.orEmpty().mapNotNull(::parse).sortedByDescending { it.at }
 
@@ -121,7 +122,7 @@ class WakeHitRecorder(private val dir: File?) : AutoCloseable {
         private const val WAV_HEADER = 44
 
         private const val BLOCKED_TAIL_MILLIS = 800L
-        private const val QUIET_MILLIS = 2_000L
+        private val BLOCKED_GAP_MILLIS = if (BuildConfig.DEBUG) 2_000L else 5 * 60_000L
         private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.ROOT).withZone(ZoneId.systemDefault())
     }
 }

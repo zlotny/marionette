@@ -23,7 +23,6 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -60,6 +59,21 @@ import dev.marionette.ui.ToolPresentations
 import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoicePhase
 import dev.marionette.voice.VoiceService
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextDirection
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -78,8 +92,20 @@ fun ReplyActions(turn: Turn, last: Boolean) {
         if (reading && voice.phase !in setOf(VoicePhase.SPEAKING, VoicePhase.LISTENING, VoicePhase.TRANSCRIBING, VoicePhase.THINKING)) reading = false
     }
     val tint = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(Modifier.fillMaxWidth().padding(start = 0.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { copy(context, turn.reply) }) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.reply_copy), Modifier.size(20.dp), tint = tint) }
+    val haptics = LocalHapticFeedback.current
+    Row(
+        Modifier.fillMaxWidth().layout { measurable, constraints ->
+            val bleed = ACTION_BLEED.roundToPx()
+            val width = constraints.maxWidth + 2 * bleed
+            val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+            layout(constraints.maxWidth, placeable.height) { placeable.place(-bleed, 0) }
+        },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            copy(context, turn.reply)
+        }) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.reply_copy), Modifier.size(20.dp), tint = tint) }
         IconButton(onClick = { share(context, turn.reply) }) { Icon(Icons.Rounded.Share, stringResource(R.string.reply_share), Modifier.size(20.dp), tint = tint) }
         IconButton(onClick = { details = true }) { Icon(Icons.Rounded.MoreHoriz, stringResource(R.string.reply_details), Modifier.size(20.dp), tint = tint) }
         Spacer(Modifier.weight(1f))
@@ -93,9 +119,9 @@ fun ReplyActions(turn: Turn, last: Boolean) {
             }
         }) {
             Icon(
-                if (speaking) Icons.Rounded.Stop else Icons.Rounded.VolumeUp,
+                if (speaking) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.VolumeUp,
                 stringResource(if (speaking) R.string.action_stop else R.string.reply_read_aloud),
-                Modifier.size(22.dp),
+                Modifier.size(20.dp),
                 tint = if (speaking) MaterialTheme.colorScheme.primary else tint,
             )
         }
@@ -140,22 +166,29 @@ private fun readDetails(trace: JsonObject): TurnDetails {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun TurnDetailsSheet(turn: Turn, onDismiss: () -> Unit) {
-    val details by produceState<TurnDetails?>(null, turn.id) {
-        value = withContext(Dispatchers.IO) {
-            File(MarionetteApp.graph.traces.directory, "turn-${turn.id}.json").takeIf { it.exists() }?.let { readDetails(parseObject(it.readText())) }
+    val loaded by produceState<Result<TurnDetails?>?>(null, turn.id) {
+        value = runCatching {
+            withContext(Dispatchers.IO) {
+                File(MarionetteApp.graph.traces.directory, "turn-${turn.id}.json").takeIf { it.exists() }?.let { readDetails(parseObject(it.readText())) }
+            }
         }
     }
     var showContext by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).navigationBarsPadding().padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.reply_details), style = MaterialTheme.typography.titleLarge)
-            val d = details
+            Text(stringResource(R.string.reply_details), style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+            val result = loaded
+            if (result == null) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) { LoadingIndicator() }
+                return@Column
+            }
+            val d = result.getOrNull()
             if (d == null) {
                 Text(stringResource(R.string.reply_details_missing), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 return@Column
@@ -185,12 +218,16 @@ private fun TurnDetailsSheet(turn: Turn, onDismiss: () -> Unit) {
                 TextButton(onClick = { showContext = !showContext }) {
                     Text(stringResource(if (showContext) R.string.reply_details_hide_context else R.string.reply_details_show_context))
                 }
-                if (showContext) {
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                AnimatedVisibility(
+                    showContext,
+                    enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(),
+                    exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeOut(),
+                ) {
+                    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                         SelectionContainer {
                             Text(
                                 d.context,
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, textDirection = TextDirection.Ltr),
                                 modifier = Modifier.padding(12.dp).horizontalScroll(rememberScrollState()),
                             )
                         }
@@ -200,6 +237,8 @@ private fun TurnDetailsSheet(turn: Turn, onDismiss: () -> Unit) {
         }
     }
 }
+
+private val ACTION_BLEED = 12.dp
 
 @Composable
 private fun DetailLine(label: String, value: String) {

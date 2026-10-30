@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddComment
 import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DriveFileRenameOutline
@@ -52,6 +53,16 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.marionette.R
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import dev.marionette.agent.Chat
 import dev.marionette.ui.components.TextDialog
 import java.util.Calendar
@@ -72,8 +83,9 @@ fun ChatDrawer(chats: List<Chat>, currentId: String, actions: ChatActions) {
     var renaming by remember { mutableStateOf<Chat?>(null) }
     var deleting by remember { mutableStateOf<Chat?>(null) }
     var deletingArchived by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
     val archivedCount = chats.count { it.archived }
-    val visible = chats.filter { it.archived == archived && it.matches(query.trim()) }
+    val visible = remember(chats, archived, query) { chats.filter { it.archived == archived && it.matches(query.trim()) } }
     val sections = remember(visible) { sectionsOf(visible) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
@@ -84,8 +96,8 @@ fun ChatDrawer(chats: List<Chat>, currentId: String, actions: ChatActions) {
             selected = false,
             onClick = actions.onNew,
         )
-        if (archivedCount > 0 || archived) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        AnimatedVisibility(archivedCount > 0 || archived) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 FilterChip(
                     selected = archived,
                     onClick = { archived = !archived },
@@ -97,8 +109,15 @@ fun ChatDrawer(chats: List<Chat>, currentId: String, actions: ChatActions) {
                 }
             }
         }
-        if (visible.isEmpty()) {
-            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+        AnimatedVisibility(visible.isEmpty(), enter = fadeIn(), exit = fadeOut()) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    if (query.isNotBlank()) Icons.Rounded.Search else if (archived) Icons.Rounded.Archive else Icons.Rounded.ChatBubbleOutline,
+                    null,
+                    Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.outline,
+                )
+                Spacer(Modifier.size(12.dp))
                 Text(
                     stringResource(
                         when {
@@ -109,21 +128,23 @@ fun ChatDrawer(chats: List<Chat>, currentId: String, actions: ChatActions) {
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
         LazyColumn(Modifier.weight(1f)) {
             sections.forEach { (section, items) ->
-                item(key = "section-$section") {
+                item(key = "section-$section", contentType = "section") {
                     Text(
                         stringResource(section.label),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+                        modifier = Modifier.animateItem().padding(start = 16.dp, top = 16.dp, bottom = 8.dp).semantics { heading() },
                     )
                 }
-                items(items, key = { it.id }) { chat ->
+                items(items, key = { it.id }, contentType = { "chat" }) { chat ->
                     ChatItem(
+                        modifier = Modifier.animateItem(),
                         chat = chat,
                         selected = chat.id == currentId,
                         onOpen = { actions.onOpen(chat.id) },
@@ -156,6 +177,7 @@ fun ChatDrawer(chats: List<Chat>, currentId: String, actions: ChatActions) {
             text = { Text(stringResource(R.string.chat_delete_body, chat.title)) },
             confirmButton = {
                 TextButton(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                     actions.onDelete(chat.id)
                     deleting = null
                 }) { Text(stringResource(R.string.action_delete)) }
@@ -219,9 +241,19 @@ private fun SearchBox(query: String, onQuery: (String) -> Unit, modifier: Modifi
 }
 
 @Composable
-private fun ChatItem(chat: Chat, selected: Boolean, onOpen: () -> Unit, onRename: () -> Unit, onArchive: () -> Unit, onDelete: () -> Unit) {
+private fun ChatItem(chat: Chat, selected: Boolean, onOpen: () -> Unit, onRename: () -> Unit, onArchive: () -> Unit, onDelete: () -> Unit, modifier: Modifier = Modifier) {
     var menu by remember { mutableStateOf(false) }
+    val renameLabel = stringResource(R.string.chat_rename)
+    val archiveLabel = stringResource(if (chat.archived) R.string.chat_unarchive else R.string.chat_archive)
+    val deleteLabel = stringResource(R.string.action_delete)
     NavigationDrawerItem(
+        modifier = modifier.semantics {
+            customActions = listOf(
+                CustomAccessibilityAction(renameLabel) { onRename(); true },
+                CustomAccessibilityAction(archiveLabel) { onArchive(); true },
+                CustomAccessibilityAction(deleteLabel) { onDelete(); true },
+            )
+        },
         label = { Text(chat.title.ifBlank { stringResource(R.string.chats_new) }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         selected = selected,
         onClick = onOpen,

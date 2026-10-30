@@ -9,6 +9,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.PanTool
@@ -47,6 +48,8 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
     val graph = MarionetteApp.graph
     val settings by graph.settings.settings.collectAsStateWithLifecycle()
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
+    val audioDevices by graph.audioRoutes.devices.collectAsStateWithLifecycle()
+    val audioConnected by graph.audioRoutes.connected.collectAsStateWithLifecycle()
     val access = rememberAccessState()
     val accesses = Access.relevant(context, settings)
     val granted = accesses.count(access::isGranted)
@@ -155,6 +158,15 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
                 item { i, n ->
                     SettingsRow(
                         i, n,
+                        headline = stringResource(R.string.audio_devices_title),
+                        supporting = audioDevices.firstOrNull { it.enabled && it.id in audioConnected }?.let { deviceName(it) } ?: stringResource(R.string.audio_devices_phone),
+                        leading = { SettingsIcon(Icons.Rounded.Headphones) },
+                        onClick = { onOpen(SettingsNavigation.AudioDevices) },
+                    )
+                }
+                item { i, n ->
+                    SettingsRow(
+                        i, n,
                         headline = stringResource(R.string.voice_group_conversation),
                         supporting = stringResource(
                             R.string.settings_conversation_summary,
@@ -222,7 +234,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
             }
         }
         item {
-            SettingsGroup(stringResource(R.string.settings_group_history)) {
+            SettingsGroup(null) {
                 item { i, n ->
                     SettingsRow(
                         i, n,
@@ -232,10 +244,6 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
                         onClick = { onOpen(ActivityRoute) },
                     )
                 }
-            }
-        }
-        item {
-            SettingsGroup(stringResource(R.string.settings_group_about)) {
                 item { i, n ->
                     SettingsRow(
                         i, n,

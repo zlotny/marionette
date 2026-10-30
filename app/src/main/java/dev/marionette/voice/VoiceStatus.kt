@@ -1,9 +1,11 @@
 package dev.marionette.voice
 
+import dev.marionette.core.Logger
 import dev.marionette.voice.wake.StopPhrase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 
 enum class VoicePhase { OFF, PAUSED, WAITING, LISTENING, TRANSCRIBING, THINKING, SPEAKING, ENROLLING }
@@ -31,13 +33,20 @@ data class VoiceStatus(
     val lastWakeAt: Long = 0,
     val stopPhrases: List<StopPhrase> = emptyList(),
     val lastStopAt: Long = 0,
+    val lastCancelAt: Long = 0,
 )
+
+data class SpeechProgress(val text: String = "", val spokenTo: Int = 0, val aheadTo: Int = 0, val rate: Float = 1f)
 
 object VoiceBus {
     private val _status = MutableStateFlow(VoiceStatus())
     val status: StateFlow<VoiceStatus> = _status.asStateFlow()
 
-    fun update(transform: (VoiceStatus) -> VoiceStatus) = _status.update(transform)
+    fun update(transform: (VoiceStatus) -> VoiceStatus) {
+        val before = _status.getAndUpdate(transform).phase
+        val after = _status.value.phase
+        if (after != before) Logger.ux("phase", after)
+    }
 
     private val _level = MutableStateFlow(0f)
     val level: StateFlow<Float> = _level.asStateFlow()
@@ -45,4 +54,16 @@ object VoiceBus {
     fun level(value: Float) {
         _level.value = value
     }
+
+    private val _speechLevel = MutableStateFlow(0f)
+    val speechLevel: StateFlow<Float> = _speechLevel.asStateFlow()
+
+    fun speechLevel(value: Float) {
+        _speechLevel.value = value
+    }
+
+    private val _speech = MutableStateFlow(SpeechProgress())
+    val speech: StateFlow<SpeechProgress> = _speech.asStateFlow()
+
+    fun speech(transform: (SpeechProgress) -> SpeechProgress) = _speech.update(transform)
 }

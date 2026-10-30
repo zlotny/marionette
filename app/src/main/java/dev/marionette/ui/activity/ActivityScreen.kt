@@ -17,6 +17,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +41,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.draw.rotate
 import dev.marionette.ui.agentName
 import dev.marionette.agent.ActionEntry
 import dev.marionette.ui.ToolPresentations
@@ -54,6 +62,7 @@ fun ActivityScreen(onBack: () -> Unit) {
     SettingsScaffold(
         title = stringResource(R.string.activity_title),
         onBack = onBack,
+        spacing = ListItemDefaults.SegmentedGap,
         actions = {
             if (entries.isNotEmpty()) {
                 IconButton(onClick = { scope.launch { log.clear() } }) {
@@ -79,10 +88,8 @@ fun ActivityScreen(onBack: () -> Unit) {
                 }
             }
         } else {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                    entries.forEachIndexed { index, entry -> EntryRow(entry, index, entries.size) }
-                }
+            itemsIndexed(entries, key = { _, entry -> "${entry.timestamp}-${entry.tool}" }, contentType = { _, _ -> "entry" }) { index, entry ->
+                Box(Modifier.animateItem()) { EntryRow(entry, index, entries.size) }
             }
         }
     }
@@ -103,6 +110,7 @@ private fun EntryRow(entry: ActionEntry, index: Int, count: Int) {
         onClick = { expanded = !expanded },
         shapes = ListItemDefaults.segmentedShapes(index, count),
         colors = ListItemDefaults.segmentedColors(),
+        verticalAlignment = if (expanded) Alignment.Top else Alignment.CenterVertically,
         leadingContent = {
             if (failed) {
                 SettingsIcon(presentation.icon, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
@@ -116,7 +124,11 @@ private fun EntryRow(entry: ActionEntry, index: Int, count: Int) {
                     stringResource(outcome.text),
                     color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                AnimatedVisibility(expanded) { Details(entry, args, result) }
+                AnimatedVisibility(
+                    expanded,
+                    enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                    exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                ) { Details(entry, args, result) }
             }
         },
         trailingContent = {
@@ -125,10 +137,12 @@ private fun EntryRow(entry: ActionEntry, index: Int, count: Int) {
                     DateUtils.getRelativeTimeSpanString(entry.timestamp).toString(),
                     style = MaterialTheme.typography.labelSmall,
                 )
+                val turn by animateFloatAsState(if (expanded) 180f else 0f, MaterialTheme.motionScheme.defaultSpatialSpec(), label = "chevron")
                 Icon(
-                    if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    Icons.Rounded.ExpandMore,
                     stringResource(R.string.activity_details),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.rotate(turn),
                 )
             }
         },
@@ -147,7 +161,7 @@ private fun Details(entry: ActionEntry, args: JsonObject, result: JsonObject) {
         DetailBlock(stringResource(R.string.activity_request, agentName()), ActionText.readable(args))
         DetailBlock(stringResource(R.string.activity_result), ActionText.readable(result, setOf("ok")))
         Text(
-            stringResource(R.string.activity_duration, "%.1f s".format(entry.durationMillis / 1000.0)),
+            stringResource(R.string.activity_duration, stringResource(R.string.reply_details_seconds, entry.durationMillis / 1000.0)),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -159,7 +173,7 @@ private fun DetailBlock(title: String, body: String) {
     if (body.isBlank()) return
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.fillMaxWidth()) {
             Text(body, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
         }
     }

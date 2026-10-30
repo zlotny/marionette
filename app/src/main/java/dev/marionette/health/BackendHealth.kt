@@ -56,8 +56,12 @@ class HealthMonitor(context: Context, private val settings: SettingsStore, turns
     init {
         runCatching {
             connectivity.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                private var checkedNetwork: Network? = null
+
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                    if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) && _backend.value != BackendHealth.Ok) check()
+                    if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) || network == checkedNetwork) return
+                    checkedNetwork = network
+                    if (_backend.value != BackendHealth.Ok) check()
                 }
 
                 override fun onLost(network: Network) = check()

@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.BuildConfig
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import androidx.compose.foundation.layout.size
 import dev.marionette.ui.agentName
 import dev.marionette.access.Access
 import dev.marionette.ui.access.AccessList
@@ -282,13 +283,14 @@ private fun TrainingCard(voice: VoiceStatus) {
         else -> R.string.wake_training_next_use
     }
     Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(stringResource(R.string.wake_training_intro, agentName()), style = MaterialTheme.typography.bodyLarge)
             steps.forEach { (done, label) ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(
                         if (done) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
                         null,
+                        modifier = Modifier.size(20.dp),
                         tint = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                     Text(label, style = MaterialTheme.typography.bodyMedium)

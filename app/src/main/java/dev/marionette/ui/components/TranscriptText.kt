@@ -1,10 +1,23 @@
 package dev.marionette.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -19,13 +32,39 @@ fun TranscriptText(
     style: TextStyle,
     maxLines: Int,
     modifier: Modifier = Modifier,
-    minFontSize: TextUnit = 11.sp,
+    minFontSize: TextUnit = TextUnit.Unspecified,
+    animate: Boolean = false,
+    shimmer: State<Float>? = null,
 ) {
     val measurer = rememberTextMeasurer()
+    val chars = remember { Animatable(0f) }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var previous by remember { mutableStateOf("") }
+    val floor = if (minFontSize.isSp) minFontSize else (style.fontSize.value * MIN_SCALE).sp
     BoxWithConstraints(modifier) {
         val width = constraints.maxWidth
-        val (shown, fitted) = remember(text, style, width, maxLines) { fit(measurer, text, style, width, maxLines, minFontSize) }
-        Text(shown, style = fitted, maxLines = maxLines, overflow = TextOverflow.Clip)
+        val (shown, fitted) = remember(text, style, width, maxLines, floor) { fit(measurer, text, style, width, maxLines, floor) }
+        if (animate) {
+            LaunchedEffect(text, shown) {
+                val fresh = text.length - previous.commonPrefixWith(text).length
+                previous = text
+                val start = (shown.length - fresh).coerceAtLeast(0).toFloat()
+                if (start < chars.value) chars.snapTo(start)
+                chars.animateTo(shown.length.toFloat(), tween((fresh * 22).coerceIn(160, 700), easing = FastOutSlowInEasing))
+            }
+        }
+        Text(
+            shown,
+            style = fitted,
+            maxLines = maxLines,
+            overflow = TextOverflow.Clip,
+            onTextLayout = { layout = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics { this.text = AnnotatedString(text) }
+                .then(if (animate) Modifier.revealMask({ layout }, { chars.value }, { 0f }) else Modifier)
+                .shimmer(shimmer),
+        )
     }
 }
 
@@ -63,3 +102,4 @@ private fun scaled(style: TextStyle, size: Float): TextStyle {
 }
 
 private const val MAX_WORD_SKIP = 16
+private const val MIN_SCALE = 0.75f

@@ -44,6 +44,8 @@ data class Turn(
     val status: TurnStatus = TurnStatus.THINKING,
     val error: String? = null,
     val quiet: Boolean = false,
+    val undelivered: Boolean = false,
+    val replySpoken: Boolean = false,
 )
 
 @Serializable
@@ -124,11 +126,13 @@ class Conversation(private val directory: File? = null, private val scope: Corou
 
     fun deleteArchived() = _chats.value.filter { it.archived }.forEach { delete(it.id) }
 
+    @Synchronized
     private fun select(chat: Chat) {
         _current.value = chat
         _turns.value = chat.turns
     }
 
+    @Synchronized
     private fun change(id: String, transform: (Chat) -> Chat) {
         if (id == _current.value.id) {
             edit(transform = transform)
@@ -139,6 +143,7 @@ class Conversation(private val directory: File? = null, private val scope: Corou
         save(changed)
     }
 
+    @Synchronized
     private fun edit(persist: (Chat) -> Boolean = { true }, transform: (Chat) -> Chat) {
         val next = _current.updateAndGet(transform)
         _turns.value = _current.value.turns

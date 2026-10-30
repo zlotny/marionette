@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -94,16 +95,17 @@ fun ScreenControlScreen(onBack: () -> Unit) {
                 visible.forEach { app ->
                     item { i, n ->
                         val blocked = app.pkg in settings.uiAutomationBlocklist
-                        val toggle = { on: Boolean ->
-                            updateSettings { it.copy(uiAutomationBlocklist = if (on) it.uiAutomationBlocklist + app.pkg else it.uiAutomationBlocklist - app.pkg) }
+                        val toggle = { allowed: Boolean ->
+                            updateSettings { it.copy(uiAutomationBlocklist = if (allowed) it.uiAutomationBlocklist - app.pkg else it.uiAutomationBlocklist + app.pkg) }
                         }
                         SegmentedListItem(
-                            onClick = { toggle(!blocked) },
+                            onClick = { toggle(blocked) },
                             shapes = ListItemDefaults.segmentedShapes(i, n),
                             colors = ListItemDefaults.segmentedColors(),
+                            verticalAlignment = Alignment.CenterVertically,
                             leadingContent = { app.icon?.let { Image(it, null, Modifier.size(40.dp)) } },
-                            supportingContent = { Text(stringResource(if (blocked) R.string.screen_control_blocked else R.string.screen_control_allowed)) },
-                            trailingContent = { Switch(checked = blocked, onCheckedChange = toggle) },
+                            supportingContent = if (blocked) ({ Text(stringResource(R.string.screen_control_blocked)) }) else null,
+                            trailingContent = { Switch(checked = !blocked, onCheckedChange = toggle) },
                         ) {
                             Text(app.label)
                         }

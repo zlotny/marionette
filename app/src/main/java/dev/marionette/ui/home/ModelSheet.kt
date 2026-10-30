@@ -47,6 +47,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.R
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import dev.marionette.agent.Chat
 import dev.marionette.agent.ModelStats
 import dev.marionette.agent.StepStats
@@ -117,9 +125,9 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
         LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(stringResource(R.string.model_sheet_title), style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(R.string.model_sheet_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                     Text(stringResource(R.string.model_latency_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (paired) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { asDefault = !asDefault }.padding(vertical = 8.dp)) {
+                    if (paired) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 56.dp).toggleable(asDefault, role = Role.Switch) { asDefault = it }.padding(vertical = 8.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text(stringResource(R.string.model_sheet_new_chats), style = MaterialTheme.typography.bodyLarge)
                             Text(
@@ -128,7 +136,7 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(checked = asDefault, onCheckedChange = { asDefault = it })
+                        Switch(checked = asDefault, onCheckedChange = null)
                     }
                 }
             }
@@ -142,8 +150,9 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
                 return@LazyColumn
             }
             item { SectionTitle(stringResource(R.string.model_section)) }
-            items(quick, key = { "quick-$it" }) { ref ->
+            items(quick, key = { "quick-$it" }, contentType = { "model" }) { ref ->
                 ModelRow(
+                    modifier = Modifier.animateItem(),
                     title = if (ref.isBlank()) stringResource(R.string.model_agent_default) else byRef[ref]?.label ?: modelLabel(ref),
                     subtitle = if (ref.isBlank()) stringResource(R.string.model_agent_default_body) else ref,
                     detail = usage(ref),
@@ -152,8 +161,12 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
                 )
             }
             item {
+                val expandedLabel = stringResource(R.string.state_expanded)
+                val collapsedLabel = stringResource(R.string.state_collapsed)
                 Row(
-                    Modifier.fillMaxWidth().clickable { browsing = !browsing }.padding(horizontal = 24.dp, vertical = 12.dp),
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { browsing = !browsing }
+                        .semantics { stateDescription = if (browsing) expandedLabel else collapsedLabel }
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(stringResource(R.string.model_all), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
@@ -188,8 +201,8 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
                     }
                     else -> {
                         if (filtered.isEmpty()) item { Text(stringResource(R.string.model_none_found), Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium) }
-                        items(filtered, key = { "all-${it.ref}" }) { option ->
-                            ModelRow(option.label, option.ref, usage(option.ref), option.ref == choice.model) {
+                        items(filtered, key = { "all-${it.ref}" }, contentType = { "model" }) { option ->
+                            ModelRow(option.label, option.ref, usage(option.ref), option.ref == choice.model, Modifier.animateItem()) {
                                 picker.selectModel(option.ref, asDefault)
                                 browsing = false
                                 query = ""
@@ -203,7 +216,7 @@ fun ModelSheet(picker: ModelPicker, settings: AppSettings, chat: Chat, onOpenBac
                 Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.thinking_section), style = MaterialTheme.typography.titleSmall)
                     Text(stringResource(R.string.thinking_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         (listOf("") + levels.map { it.id }).forEach { id ->
                             FilterChip(
                                 selected = Thinking.of(choice.thinking)?.id.orEmpty() == id,
@@ -245,15 +258,15 @@ private fun SectionTitle(text: String) {
 
 @Composable
 private fun Notice(text: String) {
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(16.dp))
     }
 }
 
 @Composable
-private fun ModelRow(title: String, subtitle: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+private fun ModelRow(title: String, subtitle: String, detail: String?, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 10.dp),
+        modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected, role = Role.RadioButton, onClick = onClick).padding(horizontal = 24.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -263,7 +276,9 @@ private fun ModelRow(title: String, subtitle: String, detail: String?, selected:
             }
             detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
         }
-        if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+            if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 

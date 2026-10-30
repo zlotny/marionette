@@ -47,6 +47,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import dev.marionette.ui.agentName
 import dev.marionette.access.Access
 import dev.marionette.settings.AppSettings
@@ -116,12 +122,14 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
             )
         }
+        val dir = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
+        val scheme = MaterialTheme.motionScheme
         AnimatedContent(
             targetState = step,
             transitionSpec = {
-                val forward = targetState.ordinal > initialState.ordinal
-                (slideInHorizontally { if (forward) it / 3 else -it / 3 } + fadeIn()) togetherWith
-                    (slideOutHorizontally { if (forward) -it / 3 else it / 3 } + fadeOut())
+                val forward = if (targetState.ordinal > initialState.ordinal) dir else -dir
+                (slideInHorizontally(scheme.defaultSpatialSpec()) { forward * it / 3 } + fadeIn(scheme.defaultEffectsSpec())) togetherWith
+                    (slideOutHorizontally(scheme.defaultSpatialSpec()) { -forward * it / 3 } + fadeOut(scheme.fastEffectsSpec()))
             },
             modifier = Modifier.weight(1f),
             label = "onboarding",
@@ -153,7 +161,7 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
                     OnboardingStep.BACKEND -> {
                         Text(stringResource(R.string.onboarding_backend_title, form.provider.title), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(24.dp))
-                        BackendSetup(form, backendActions)
+                        BackendSetup(form, backendActions, compact = true)
                     }
                     OnboardingStep.PERMISSIONS -> {
                         StepHeader(R.string.onboarding_permissions_title, R.string.onboarding_permissions_body)
@@ -197,7 +205,7 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
             Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (index > 0) TextButton(onClick = { index-- }) { Text(stringResource(R.string.action_back)) }
+            if (index > 0) TextButton(onClick = { index-- }, modifier = Modifier.heightIn(min = 56.dp)) { Text(stringResource(R.string.action_back)) }
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = {
@@ -211,7 +219,8 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
                     }
                 },
                 enabled = canContinue,
-                modifier = Modifier.height(56.dp),
+                shapes = ButtonDefaults.shapes(),
+                modifier = Modifier.heightIn(min = 56.dp),
             ) {
                 Text(
                     stringResource(
@@ -223,7 +232,6 @@ fun OnboardingScreen(onDone: () -> Unit, backend: BackendViewModel = viewModel()
                         },
                         agentName(),
                     ),
-                    style = MaterialTheme.typography.titleMedium,
                 )
             }
         }
@@ -238,6 +246,8 @@ private fun Hero(title: Int, body: Int) {
         Text(
             stringResource(title, agentName()),
             style = MaterialTheme.typography.displaySmall.copy(brush = Brand.textBrush()),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
         )
         Spacer(Modifier.height(12.dp))
         Text(
@@ -251,7 +261,7 @@ private fun Hero(title: Int, body: Int) {
 
 @Composable
 fun StepHeader(title: Int, body: Int) {
-    Text(stringResource(title, agentName()), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
+    Text(stringResource(title, agentName()), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.semantics { heading() })
     Spacer(Modifier.height(8.dp))
     Text(stringResource(body, agentName()), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(24.dp))

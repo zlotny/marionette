@@ -15,7 +15,7 @@ class WakeTemplates(context: Context) {
     fun count(): Int = load().size
 
     fun minPhraseDbfs(): Float {
-        val peaks = samplesDir.listFiles { f -> f.name.startsWith("enroll-") }.orEmpty().flatMap { file ->
+        val peaks = samplesDir.listFiles { f -> f.name.startsWith("enroll-") && f.name.endsWith(".wav") && f.length() > WAV_HEADER }.orEmpty().flatMap { file ->
             val bytes = file.readBytes()
             val samples = FloatArray((bytes.size - WAV_HEADER) / 2) { i ->
                 ((bytes[WAV_HEADER + 2 * i].toInt() and 0xFF) or (bytes[WAV_HEADER + 2 * i + 1].toInt() shl 8)).toShort().toFloat()

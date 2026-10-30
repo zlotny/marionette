@@ -3,6 +3,7 @@ package dev.marionette.ui.settings
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
 
 object SettingsNavigation {
@@ -38,6 +39,12 @@ object SettingsNavigation {
 
     @Serializable
     object Speech
+
+    @Serializable
+    object AudioDevices
+
+    @Serializable
+    data class AudioDevice(val id: String)
 
     @Serializable
     object Conversation
@@ -85,6 +92,8 @@ fun NavGraphBuilder.settingsGraph(nav: NavHostController) {
     composable<SettingsNavigation.StopPhrases> { StopPhrasesScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.Recognition> { RecognitionScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.Speech> { SpeechScreen(onBack = nav::navigateUp) }
+    composable<SettingsNavigation.AudioDevices> { AudioDevicesScreen(onBack = nav::navigateUp, onOpen = { nav.navigate(SettingsNavigation.AudioDevice(it)) }) }
+    composable<SettingsNavigation.AudioDevice> { entry -> AudioDeviceScreen(id = entry.toRoute<SettingsNavigation.AudioDevice>().id, onBack = nav::navigateUp) }
     composable<SettingsNavigation.Conversation> { ConversationScreen(onBack = nav::navigateUp, onOpenHoldPhrases = { nav.navigate(SettingsNavigation.HoldPhrases) }) }
     composable<SettingsNavigation.HoldPhrases> { HoldPhrasesScreen(onBack = nav::navigateUp) }
     composable<SettingsNavigation.Context> { ContextScreen(onBack = nav::navigateUp) }

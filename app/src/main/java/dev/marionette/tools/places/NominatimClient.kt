@@ -19,7 +19,7 @@ import java.util.Locale
 
 class NominatimClient(
     private val baseUrl: String = "https://nominatim.openstreetmap.org",
-    private val client: OkHttpClient = Http.client,
+    private val client: OkHttpClient = Http.tools,
 ) {
     private val gate = Mutex()
     private var lastRequestAt = 0L
@@ -36,6 +36,7 @@ class NominatimClient(
                 .addQueryParameter("q", text)
                 .addQueryParameter("format", "jsonv2")
                 .addQueryParameter("addressdetails", "1")
+                .addQueryParameter("extratags", "1")
                 .addQueryParameter("limit", limit.coerceIn(1, 40).toString())
                 .apply {
                     near?.let {
@@ -60,6 +61,7 @@ class NominatimClient(
                             address = display,
                             location = LatLng(lat, lng),
                             category = item.string("type"),
+                            phone = item["extratags"].obj()?.let { it.string("phone") ?: it.string("contact:phone") },
                         )
                     }
                 }

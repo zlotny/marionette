@@ -1,5 +1,6 @@
 package dev.marionette.ui.settings
 
+import dev.marionette.ui.components.settingsPanelColor
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +36,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.marionette.R
+import dev.marionette.ui.components.SettingsNote
+import androidx.compose.foundation.layout.heightIn
 import dev.marionette.ui.components.SettingsGroup
 import dev.marionette.ui.components.SettingsIcon
 import dev.marionette.ui.components.SettingsRow
@@ -147,12 +150,12 @@ fun VoiceTestScreen(onBack: () -> Unit) {
             }
         } else {
             item {
-                Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Surface(shape = RoundedCornerShape(28.dp), color = settingsPanelColor(), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text(stringResource(step.title), style = MaterialTheme.typography.headlineSmall)
                         Text(stringResource(step.body), style = MaterialTheme.typography.bodyLarge)
                         if (step.typing && phase == VoiceTestPhase.RECORDING) {
-                            OutlinedTextField(value = typed, onValueChange = { typed = it }, modifier = Modifier.fillMaxWidth().height(120.dp))
+                            OutlinedTextField(value = typed, onValueChange = { typed = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp))
                         }
                         when (phase) {
                             VoiceTestPhase.READY -> {
@@ -175,12 +178,7 @@ fun VoiceTestScreen(onBack: () -> Unit) {
             }
         }
         item {
-            Text(
-                stringResource(R.string.voice_test_note),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
+            SettingsNote(stringResource(R.string.voice_test_note))
         }
     }
 }

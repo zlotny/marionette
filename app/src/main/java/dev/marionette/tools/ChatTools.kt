@@ -25,7 +25,7 @@ class ShowInChatTool : Tool {
     override val description =
         "Leave a link, an image, code or text in the chat for the user to look at later. Nothing is read aloud. " +
             "Use it for what does not work spoken: URLs, images, code, long lists, exact addresses or numbers. " +
-            "Then say in one short sentence that it is in the chat, without reading it out."
+            "Write the short sentence that it is in the chat next to the call, without reading it out."
     override val parameters = schema {
         string("kind", "What to show.", required = true, enum = AttachmentKind.entries.map { it.name.lowercase() })
         string("content", "The http(s) URL for link and image, or the text or code.", required = true)
@@ -34,6 +34,8 @@ class ShowInChatTool : Tool {
     }
 
     override fun summary(args: JsonObject) = args.string("title") ?: args.string("kind").orEmpty()
+
+    override fun endsTurn(args: JsonObject, result: JsonObject) = result.isDone()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val kind = AttachmentKind.entries.firstOrNull { it.name.equals(args.string("kind"), ignoreCase = true) }

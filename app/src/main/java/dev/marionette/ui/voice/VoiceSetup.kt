@@ -1,5 +1,7 @@
 package dev.marionette.ui.voice
 
+import dev.marionette.MarionetteApp
+import dev.marionette.ui.components.settingsPanelColor
 import android.content.Context
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
@@ -27,7 +29,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Replay
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -61,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.R
+import androidx.compose.foundation.layout.heightIn
 import dev.marionette.ui.agentName
 import dev.marionette.settings.Languages
 import dev.marionette.ui.components.VoiceOrb
@@ -79,7 +82,7 @@ const val ENROLL_TARGET = 5
 @Composable
 fun rememberSpeaker(): Speaker {
     val context = LocalContext.current
-    val speaker = remember { Speaker(context.applicationContext) }
+    val speaker = remember { Speaker(context.applicationContext, MarionetteApp.graph.audioRoutes) }
     DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
     return speaker
 }
@@ -109,7 +112,9 @@ fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modi
                 scope.launch {
                     speaking = true
                     try {
-                        speaker.speak(localizedString(context, language, R.string.voice_test_phrase, name), language, voice, rate, cloud)
+                        val graph = MarionetteApp.graph
+                        val route = graph.audioRoutes.route()
+                        speaker.speak(localizedString(context, language, R.string.voice_test_phrase, name), language, voice, rate, cloud, route, gain = route.speechGain(graph.settings.current.phoneVolume))
                     } finally {
                         speaking = false
                     }
@@ -118,7 +123,7 @@ fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modi
         },
         modifier = modifier,
     ) {
-        Icon(Icons.Rounded.VolumeUp, null, Modifier.size(18.dp))
+        Icon(Icons.AutoMirrored.Rounded.VolumeUp, null, Modifier.size(18.dp))
         Spacer(Modifier.size(8.dp))
         Text(stringResource(if (speaking) R.string.action_stop else R.string.voice_test))
     }
@@ -127,13 +132,15 @@ fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modi
 @Composable
 fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    var phrase by rememberSaveable { mutableStateOf(savedPhrase) }
+    val suggested = stringResource(R.string.wake_phrase_default, agentName())
+    var phrase by rememberSaveable { mutableStateOf(savedPhrase.ifBlank { suggested }) }
+    LaunchedEffect(Unit) { if (savedPhrase.isBlank()) onPhrase(phrase.trim()) }
     val voice by VoiceBus.status.collectAsStateWithLifecycle()
     val enrolling = voice.phase == VoicePhase.ENROLLING && !voice.enrollingSpeech
     val guided = rememberGuidedEnrollment(start = { append -> VoiceService.enroll(context, append) })
 
-    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Surface(shape = RoundedCornerShape(28.dp), color = settingsPanelColor(), modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             OutlinedTextField(
                 value = phrase,
                 onValueChange = {
@@ -142,6 +149,7 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                 },
                 label = { Text(stringResource(R.string.wake_phrase)) },
                 placeholder = { Text(stringResource(R.string.wake_phrase_hint, agentName())) },
+                supportingText = { Text(stringResource(R.string.wake_phrase_helper)) },
                 singleLine = true,
                 enabled = !enrolling && !guided.active,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
@@ -173,7 +181,7 @@ fun WakeEnrollment(savedPhrase: String, onPhrase: (String) -> Unit, modifier: Mo
                         Button(
                             onClick = { guided.begin(append = false) },
                             enabled = phrase.isNotBlank(),
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                         ) {
                             Icon(Icons.Rounded.Mic, null)
                             Spacer(Modifier.size(8.dp))
@@ -274,9 +282,9 @@ private fun WakeTest(lastWakeAt: Long, armed: Boolean, templates: Int, onAddMore
             label = "heard",
         ) { ok ->
             if (ok) {
-                Icon(Icons.Rounded.CheckCircle, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Rounded.CheckCircle, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
             } else {
-                Icon(Icons.Rounded.Mic, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Rounded.Mic, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Text(

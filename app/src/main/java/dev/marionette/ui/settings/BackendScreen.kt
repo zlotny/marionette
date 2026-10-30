@@ -1,5 +1,7 @@
 package dev.marionette.ui.settings
 
+import androidx.compose.material.icons.rounded.Forum
+import dev.marionette.ui.components.settingsPanelColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.ui.components.SettingsIcon
+import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Link
 import dev.marionette.llm.Provider
 import dev.marionette.settings.AppSettings
 import dev.marionette.settings.Credential
@@ -78,8 +84,8 @@ fun BackendScreen(onBack: () -> Unit, viewModel: BackendViewModel = viewModel())
         if (editing) {
             item { ProviderPicker(form.provider, viewModel::selectProvider) }
             item {
-                Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-                    BackendSetup(form, viewModel.actions(), Modifier.fillMaxWidth().padding(20.dp))
+                Surface(shape = RoundedCornerShape(28.dp), color = settingsPanelColor()) {
+                    BackendSetup(form, viewModel.actions(), Modifier.fillMaxWidth().padding(16.dp))
                 }
             }
         } else {
@@ -92,6 +98,7 @@ fun BackendScreen(onBack: () -> Unit, viewModel: BackendViewModel = viewModel())
                                 i, n,
                                 headline = stringResource(if (settings.provider == Provider.OPENCLAW) R.string.gateway_address else R.string.backend_base_url),
                                 supporting = settings.baseUrl,
+                                leading = { SettingsIcon(Icons.Rounded.Link) },
                             )
                         }
                     }
@@ -100,6 +107,7 @@ fun BackendScreen(onBack: () -> Unit, viewModel: BackendViewModel = viewModel())
                             i, n,
                             headline = stringResource(if (settings.provider.isAgent) R.string.gateway_agent else R.string.backend_model),
                             supporting = settings.model,
+                            leading = { SettingsIcon(if (settings.provider.isAgent) Icons.Rounded.SmartToy else Icons.Rounded.Memory) },
                         )
                     }
                     item { i, n ->
@@ -113,6 +121,7 @@ fun BackendScreen(onBack: () -> Unit, viewModel: BackendViewModel = viewModel())
                             ChoiceRow(
                                 i, n,
                                 headline = stringResource(R.string.conversation_mode),
+                                leading = { SettingsIcon(Icons.Rounded.Forum) },
                                 options = listOf(
                                     false to stringResource(R.string.conversation_fresh),
                                     true to stringResource(R.string.conversation_continuous),
@@ -129,8 +138,8 @@ fun BackendScreen(onBack: () -> Unit, viewModel: BackendViewModel = viewModel())
             }
             if (settings.provider == Provider.OPENCLAW) {
                 item {
-                    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-                        Column(Modifier.fillMaxWidth().padding(20.dp)) { LiveProgressSection(form, viewModel.actions()) }
+                    Surface(shape = RoundedCornerShape(28.dp), color = settingsPanelColor()) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp)) { LiveProgressSection(form, viewModel.actions()) }
                     }
                 }
             }
@@ -144,7 +153,7 @@ fun BackendScreen(onBack: () -> Unit, viewModel: BackendViewModel = viewModel())
 @Composable
 private fun BackendSummaryCard(settings: AppSettings, onChange: () -> Unit) {
     Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (settings.provider == Provider.OPENCLAW) {
                     PuppetMark(size = 36.dp)

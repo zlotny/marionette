@@ -1,5 +1,10 @@
 package dev.marionette.ui.settings
 
+import kotlinx.coroutines.launch
+import dev.marionette.voice.Earcons
+import dev.marionette.voice.Earcon
+import dev.marionette.audio.VolumeOverride
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Cloud
 import dev.marionette.ui.agentName
 import dev.marionette.settings.Credential
 import dev.marionette.settings.Languages
@@ -92,6 +99,7 @@ fun RecognitionScreen(onBack: () -> Unit) {
                         ChoiceRow(
                             i, n,
                             headline = stringResource(R.string.voice_cloud_service),
+                            leading = { SettingsIcon(Icons.Rounded.Cloud) },
                             options = SttCloud.entries.map { it to it.title },
                             selected = settings.sttCloud,
                             onSelect = { cloud -> updateSettings { it.copy(sttCloud = cloud, sttModel = "") } },
@@ -101,6 +109,7 @@ fun RecognitionScreen(onBack: () -> Unit) {
                         ChoiceRow(
                             i, n,
                             headline = stringResource(R.string.voice_cloud_model),
+                            leading = { SettingsIcon(Icons.Rounded.Memory) },
                             options = settings.sttCloud.models.map { it to it },
                             selected = settings.sttModel.takeIf { it in settings.sttCloud.models } ?: settings.sttCloud.models.first(),
                             onSelect = { model -> updateSettings { it.copy(sttModel = model) } },
@@ -214,6 +223,7 @@ fun SpeechScreen(onBack: () -> Unit) {
                         ChoiceRow(
                             i, n,
                             headline = stringResource(R.string.voice_cloud_service),
+                            leading = { SettingsIcon(Icons.Rounded.Cloud) },
                             options = TtsCloud.entries.map { it to it.title },
                             selected = cloud,
                             onSelect = { choice -> updateSettings { it.copy(ttsCloud = choice, ttsModel = "", ttsCloudVoice = "") } },
@@ -223,6 +233,7 @@ fun SpeechScreen(onBack: () -> Unit) {
                         ChoiceRow(
                             i, n,
                             headline = stringResource(R.string.voice_cloud_model),
+                            leading = { SettingsIcon(Icons.Rounded.Memory) },
                             options = modelOptions,
                             selected = model,
                             describe = { id -> ttsDetail(VoiceModelCatalog.tts(id), livePrices[id], english) },
@@ -282,9 +293,7 @@ fun SpeechScreen(onBack: () -> Unit) {
             item { SettingsNote(stringResource(R.string.voice_tts_models_note)) }
         }
         item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                VoiceTestButton(settings.language, settings.ttsVoice, rate, cloud = CloudVoice.from(settings.copy(speechRate = rate)))
-            }
+            VoiceTestButton(settings.language, settings.ttsVoice, rate, Modifier.fillMaxWidth(), cloud = CloudVoice.from(settings.copy(speechRate = rate)))
         }
     }
 }
@@ -350,6 +359,7 @@ fun ConversationScreen(onBack: () -> Unit, onOpenHoldPhrases: () -> Unit) {
                         onCheckedChange = { on -> updateSettings { it.copy(earcons = on) } },
                     )
                 }
+                if (settings.earcons) item { i, n -> EarconVolumeRow(i, n, settings.earconVolume, settings.phoneVolume) }
                 item { i, n ->
                     SwitchRow(
                         i, n,
@@ -406,4 +416,27 @@ private fun tagLabels(tags: Set<ModelTag>): String? = ModelTag.entries.filter { 
 private fun voiceLabel(name: String, tag: String): String {
     val variant = name.substringAfter("-x-", "").substringBefore('-').ifBlank { name }
     return "$tag · ${variant.uppercase()}"
+}
+
+@Composable
+private fun EarconVolumeRow(index: Int, count: Int, percent: Int, phoneVolume: Int) {
+    val scope = rememberCoroutineScope()
+    val routes = MarionetteApp.graph.audioRoutes
+    var value by remember(percent) { mutableFloatStateOf(percent.toFloat()) }
+    SliderRow(
+        index, count,
+        headline = stringResource(R.string.voice_earcons_volume),
+        supporting = stringResource(R.string.voice_earcons_volume_body),
+        valueLabel = value.roundToInt().let { if (it == VolumeOverride.MIN) stringResource(R.string.volume_muted) else VolumeOverride.label(it) },
+        value = value,
+        valueRange = VolumeOverride.MIN.toFloat()..VolumeOverride.MAX.toFloat(),
+        steps = (VolumeOverride.MAX - VolumeOverride.MIN) / VolumeOverride.STEP - 1,
+        onValueChange = { value = it },
+        onValueChangeFinished = {
+            val chosen = value.roundToInt()
+            updateSettings { it.copy(earconVolume = chosen) }
+            val route = routes.route()
+            scope.launch { runCatching { Earcons.play(Earcon.WAKE, route, routes.info(route.output), route.cueGain(phoneVolume, chosen)) } }
+        },
+    )
 }

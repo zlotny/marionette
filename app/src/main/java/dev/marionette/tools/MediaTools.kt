@@ -9,6 +9,8 @@ import android.media.session.PlaybackState
 import android.os.Bundle
 import android.provider.MediaStore
 import dev.marionette.core.Logger
+import dev.marionette.core.boolean
+import dev.marionette.core.int
 import dev.marionette.core.string
 import dev.marionette.launch.LaunchStatus
 import dev.marionette.media.MediaSessions
@@ -17,18 +19,39 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
+object MediaModes {
+    private const val ACTION_SET_REPEAT_MODE = 1L shl 18
+    private const val ACTION_SET_SHUFFLE_MODE = 1L shl 21
+    private const val PREFIX = "android.support.v4.media.session.action."
+
+    fun set(controller: MediaController, mode: String, on: Boolean): Boolean {
+        val actions = controller.playbackState?.actions ?: return false
+        val shuffle = mode == "shuffle"
+        if (actions and (if (shuffle) ACTION_SET_SHUFFLE_MODE else ACTION_SET_REPEAT_MODE) == 0L) return false
+        val name = if (shuffle) "SHUFFLE_MODE" else "REPEAT_MODE"
+        val value = if (on) 1 else 0
+        controller.transportControls.sendCustomAction("${PREFIX}SET_$name", Bundle().apply { putInt("${PREFIX}ARGUMENT_$name", value) })
+        return true
+    }
+}
+
 class MediaControlTool : Tool {
     override val name = "media_control"
     override val category = ToolCategory.MEDIA
     override val description =
         "Control the music, podcast or video that is playing (Spotify, YouTube Music...): play, pause, next, previous, stop, " +
-            "or status to get what is playing."
+            "forward or rewind by seconds, shuffle or repeat on and off, or status to get what is playing."
     override val parameters = schema {
-        string("action", "What to do.", required = true, enum = listOf("play", "pause", "toggle", "next", "previous", "stop", "status"))
+        string("action", "What to do.", required = true, enum = listOf("play", "pause", "toggle", "next", "previous", "stop", "forward", "rewind", "shuffle", "repeat", "status"))
         string("app", "App name or package when several are playing.")
+        integer("times", "For next and previous: how many tracks to skip, 1 to 20.")
+        integer("seconds", "For forward and rewind. Default 30.")
+        string("set", "For shuffle and repeat: on or off. Default on.", enum = listOf("on", "off"))
     }
 
     override fun summary(args: JsonObject) = args.string("action").orEmpty()
+
+    override fun endsTurn(args: JsonObject, result: JsonObject) = args.string("action") != "status" && result.isDone()
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val action = args.string("action") ?: return ToolResults.error("bad_arguments", "action is required.")
@@ -47,22 +70,40 @@ class MediaControlTool : Tool {
                 ctx.playback.stayPaused()
                 if (effective == "pause") controls.pause() else controls.stop()
             }
+            "forward", "rewind" -> {
+                val state = controller.playbackState
+                val elapsed = state?.let { if (it.state == PlaybackState.STATE_PLAYING) (android.os.SystemClock.elapsedRealtime() - it.lastPositionUpdateTime) * it.playbackSpeed else 0f }?.toLong() ?: 0L
+                val position = (state?.position ?: 0L) + elapsed
+                val delta = (args.int("seconds") ?: DEFAULT_SEEK_SECONDS) * 1000L * (if (effective == "forward") 1 else -1)
+                controls.seekTo((position + delta).coerceAtLeast(0L))
+            }
+            "shuffle", "repeat" -> if (!MediaModes.set(controller, effective, args.string("set") != "off" && args.boolean("on") != false)) {
+                return ToolResults.error("unsupported", "${controller.packageName} does not accept $effective from other apps.")
+            }
             "play", "next", "previous" -> {
                 ctx.playback.handOver()
                 when (effective) {
-                    "next" -> controls.skipToNext()
-                    "previous" -> controls.skipToPrevious()
+                    "next" -> repeatSkip(args) { controls.skipToNext() }
+                    "previous" -> repeatSkip(args) { controls.skipToPrevious() }
                 }
                 if (effective == "play" || held) controls.play()
             }
         }
         val state = describe(controller).toMutableMap()
         if (action == "status" && held) state["state"] = "playing"
-        return ToolResults.ok("app" to controller.packageName, *state.toList().toTypedArray())
+        return ToolResults.ok("app" to ctx.context.appLabel(controller.packageName), *state.toList().toTypedArray())
     }
 
     override fun silencesTurn(args: JsonObject, result: JsonObject): Boolean =
         !result.isError() && args.string("action") in listOf("play", "next", "previous", "toggle") && result.string("state") != "paused"
+
+    private suspend fun repeatSkip(args: JsonObject, skip: () -> Unit) {
+        val times = (args.int("times") ?: 1).coerceIn(1, MAX_SKIPS)
+        repeat(times) { index ->
+            skip()
+            if (index < times - 1) delay(SKIP_GAP_MILLIS)
+        }
+    }
 
     private fun effective(action: String, playing: Boolean) = if (action == "toggle") (if (playing) "pause" else "play") else action
 
@@ -109,6 +150,12 @@ class MediaControlTool : Tool {
         audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code))
         return ToolResults.ok("status" to "key_sent", "message" to "Sent a media key; no media session was visible to confirm it.")
     }
+
+    companion object {
+        private const val MAX_SKIPS = 20
+        private const val DEFAULT_SEEK_SECONDS = 30
+        private const val SKIP_GAP_MILLIS = 300L
+    }
 }
 
 class PlayMediaTool : Tool {
@@ -129,9 +176,12 @@ class PlayMediaTool : Tool {
         )
         string("kind", "Type of request.", enum = listOf("any", "artist", "album", "song", "playlist", "genre"))
         string("app", "App name or package, e.g. Spotify or YouTube Music.")
+        boolean("shuffle", "Turn shuffle on once playback starts, e.g. for a playlist or album.")
     }
 
     override fun summary(args: JsonObject) = listOfNotNull(args.string("query"), args.string("app")?.let { "in $it" }).joinToString(" ")
+
+    override fun endsTurn(args: JsonObject, result: JsonObject) = result.string("status") in listOf("playing", "requested")
 
     override suspend fun execute(args: JsonObject, ctx: ToolContext): JsonObject {
         val url = args.string("url")?.trim()?.takeIf { it.isNotEmpty() }
@@ -146,7 +196,8 @@ class PlayMediaTool : Tool {
             MediaSessions.active(ctx.context).firstOrNull()?.packageName ?: intent.resolveActivity(ctx.context.packageManager)?.packageName
         } ?: return ToolResults.error("no_handler", "No media app handles play requests.")
         intent.setPackage(pkg)
-        if (url != null) return playUrl(ctx, pkg, url)
+        val shuffle = args.boolean("shuffle") == true
+        if (url != null) return playUrl(ctx, pkg, url, shuffle)
         if (!MediaSessions.available()) return launchOnly(intent, query, ctx)
         if (pkg in searchFails) return notPlaying(ctx, "This app does not play search requests.")
 
@@ -157,24 +208,24 @@ class PlayMediaTool : Tool {
                 return ToolResults.error("launch_failed", "The media app did not start.")
             }
             controller = awaitSession(ctx, pkg)
-            controller?.let { if (startedSince(it, before)) return playing(ctx, it) }
+            controller?.let { if (startedSince(it, before)) return playing(ctx, it, shuffle) }
         }
         if (controller == null) return notPlaying(ctx, "The app opened but has no media session.")
         controller.transportControls.playFromSearch(query, extras)
-        if (awaitStart(controller, before)) return playing(ctx, controller)
+        if (awaitStart(controller, before)) return playing(ctx, controller, shuffle)
         searchFails += pkg
         return notPlaying(ctx, "The app did not start playback for this search.")
     }
 
     override fun silencesTurn(args: JsonObject, result: JsonObject) = result.string("status") in listOf("playing", "requested")
 
-    private suspend fun playUrl(ctx: ToolContext, pkg: String, url: String): JsonObject {
+    private suspend fun playUrl(ctx: ToolContext, pkg: String, url: String, shuffle: Boolean): JsonObject {
         val uri = Uri.parse(url)
         val controller = session(ctx, pkg)
         val before = controller?.let { Snapshot(it) }
         if (controller != null) {
             controller.transportControls.playFromUri(uri, Bundle())
-            if (awaitStart(controller, before)) return playing(ctx, controller)
+            if (awaitStart(controller, before)) return playing(ctx, controller, shuffle)
             Logger.i("playFromUri did not start $url in ${pkg}: ${controller.playbackState}")
         }
         val view = Intent(Intent.ACTION_VIEW, uri).setPackage(pkg)
@@ -183,7 +234,7 @@ class PlayMediaTool : Tool {
         if (status == LaunchStatus.WAITING_FOR_UNLOCK) ctx.playback.stayPaused()
         if (status != LaunchStatus.STARTED) return launchResult(status, "The link")
         val opened = controller ?: awaitSession(ctx, pkg)
-        if (opened != null && awaitStart(opened, before)) return playing(ctx, opened)
+        if (opened != null && awaitStart(opened, before)) return playing(ctx, opened, shuffle)
         ctx.playback.stayPaused()
         return ToolResults.error("not_playing", "The link opened but playback did not start.")
     }
@@ -197,16 +248,19 @@ class PlayMediaTool : Tool {
         }
     }
 
-    private fun playing(ctx: ToolContext, controller: MediaController): JsonObject {
+    private fun playing(ctx: ToolContext, controller: MediaController, shuffle: Boolean): JsonObject {
         ctx.playback.handOver()
         val meta = controller.metadata
         return ToolResults.ok(
             "status" to "playing",
-            "app" to controller.packageName,
+            "app" to ctx.context.appLabel(controller.packageName),
             "title" to meta?.getString(MediaMetadata.METADATA_KEY_TITLE),
             "artist" to meta?.getString(MediaMetadata.METADATA_KEY_ARTIST),
+            "shuffle" to if (shuffle) (if (shuffleOn(controller)) "on" else "unsupported") else null,
         )
     }
+
+    private fun shuffleOn(controller: MediaController): Boolean = MediaModes.set(controller, "shuffle", true)
 
     private fun notPlaying(ctx: ToolContext, reason: String): JsonObject {
         ctx.playback.stayPaused()

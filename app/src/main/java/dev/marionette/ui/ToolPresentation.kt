@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Message
 import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Build
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.rounded.EventBusy
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Screenshot
 import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material.icons.rounded.Snooze
@@ -61,6 +63,7 @@ object ToolPresentations {
         "send_sms" to ToolPresentation(Icons.AutoMirrored.Rounded.Message, R.string.tool_send_sms, R.string.tool_send_sms_desc, R.string.activity_send_sms),
         "search_contacts" to ToolPresentation(Icons.Rounded.Contacts, R.string.tool_search_contacts, R.string.tool_search_contacts_desc, R.string.activity_search_contacts),
         "read_notifications" to ToolPresentation(Icons.Rounded.Notifications, R.string.tool_read_notifications, R.string.tool_read_notifications_desc, R.string.activity_read_notifications),
+        "send_message" to ToolPresentation(Icons.AutoMirrored.Rounded.Send, R.string.tool_send_message, R.string.tool_send_message_desc, R.string.activity_send_message),
         "reply_notification" to ToolPresentation(Icons.AutoMirrored.Rounded.Reply, R.string.tool_reply_notification, R.string.tool_reply_notification_desc, R.string.activity_reply_notification),
         "media_control" to ToolPresentation(Icons.Rounded.MusicNote, R.string.tool_media_control, R.string.tool_media_control_desc, R.string.activity_media_control),
         "create_event" to ToolPresentation(Icons.Rounded.CalendarMonth, R.string.tool_create_event, R.string.tool_create_event_desc, R.string.activity_create_event),
@@ -83,7 +86,8 @@ object ToolPresentations {
         "next_alarm" to ToolPresentation(Icons.Rounded.Alarm, R.string.tool_next_alarm, R.string.tool_next_alarm_desc, R.string.activity_next_alarm),
         "dismiss_alarm" to ToolPresentation(Icons.Rounded.AlarmOff, R.string.tool_dismiss_alarm, R.string.tool_dismiss_alarm_desc, R.string.activity_dismiss_alarm),
         "snooze_alarm" to ToolPresentation(Icons.Rounded.Snooze, R.string.tool_snooze_alarm, R.string.tool_snooze_alarm_desc, R.string.activity_snooze_alarm),
-        "dismiss_timer" to ToolPresentation(Icons.Rounded.TimerOff, R.string.tool_dismiss_timer, R.string.tool_dismiss_timer_desc, R.string.activity_dismiss_timer),
+        "schedule" to ToolPresentation(Icons.Rounded.Schedule, R.string.tool_schedule, R.string.tool_schedule_desc, R.string.activity_schedule),
+        "timers" to ToolPresentation(Icons.Rounded.TimerOff, R.string.tool_timers, R.string.tool_timers_desc, R.string.activity_timers),
         "read_sms" to ToolPresentation(Icons.Rounded.Sms, R.string.tool_read_sms, R.string.tool_read_sms_desc, R.string.activity_read_sms),
         "recent_calls" to ToolPresentation(Icons.Rounded.History, R.string.tool_recent_calls, R.string.tool_recent_calls_desc, R.string.activity_recent_calls),
         "create_contact" to ToolPresentation(Icons.Rounded.PersonAdd, R.string.tool_create_contact, R.string.tool_create_contact_desc, R.string.activity_create_contact),

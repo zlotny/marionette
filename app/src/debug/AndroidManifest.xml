@@ -11,6 +11,9 @@
                 <action android:name="dev.marionette.DEBUG_BACKEND" />
                 <action android:name="dev.marionette.DEBUG_KEY" />
                 <action android:name="dev.marionette.DEBUG_RESET" />
+                <action android:name="dev.marionette.DEBUG_TALK" />
+                <action android:name="dev.marionette.DEBUG_ROUTE" />
+                <action android:name="dev.marionette.DEBUG_CANCEL" />
                 <action android:name="dev.marionette.DEBUG_AUDIO" />
                 <action android:name="dev.marionette.DEBUG_CONFIRM" />
                 <action android:name="dev.marionette.DEBUG_CAPTURE" />

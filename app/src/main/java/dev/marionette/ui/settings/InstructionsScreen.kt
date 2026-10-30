@@ -1,5 +1,6 @@
 package dev.marionette.ui.settings
 
+import dev.marionette.ui.components.settingsPanelColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,16 +51,20 @@ fun InstructionsScreen(onBack: () -> Unit) {
         },
     ) {
         if (agent) {
-            item { SettingsNote(stringResource(R.string.instructions_agent_intro, agentName(), settings.provider.title)) }
             item {
-                Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-                    AgentSetupCard(Modifier.fillMaxWidth().padding(20.dp))
+                Surface(shape = RoundedCornerShape(28.dp), color = settingsPanelColor()) {
+                    AgentSetupCard(Modifier.fillMaxWidth().padding(16.dp))
                 }
             }
             item { SettingsGroup(null) { item { i, n -> SendContextRow(i, n) } } }
         } else {
             item { SettingsNote(stringResource(R.string.instructions_intro, agentName())) }
-            item { SettingsGroup(null) { item { i, n -> SendInstructionsRow(i, n) } } }
+            item {
+                SettingsGroup(null) {
+                    item { i, n -> SendInstructionsRow(i, n) }
+                    item { i, n -> SendContextRow(i, n) }
+                }
+            }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
@@ -77,7 +82,6 @@ fun InstructionsScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            item { SettingsGroup(null) { item { i, n -> SendContextRow(i, n) } } }
         }
     }
 }

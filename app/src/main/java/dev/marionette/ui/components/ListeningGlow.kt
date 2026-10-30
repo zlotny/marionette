@@ -27,13 +27,14 @@ import dev.marionette.ui.theme.Brand
 fun ListeningGlow(visible: Boolean, modifier: Modifier = Modifier, height: Dp = 220.dp) {
     val alpha by animateFloatAsState(if (visible) 1f else 0f, tween(450), label = "glowAlpha")
     if (alpha == 0f) return
+    val motion = LocalMotion.current
     val transition = rememberInfiniteTransition(label = "glow")
-    val shift by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(4000, easing = LinearEasing)), label = "shift")
+    val drift = transition.animateFloat(0f, 1f, infiniteRepeatable(tween(4000, easing = LinearEasing)), label = "shift")
     val energy by rememberMicEnergy(8f, spring(dampingRatio = 0.6f, stiffness = 200f))
     Canvas(modifier.fillMaxWidth().height(height).graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
         val w = size.width
         val colors = Brand.glowColors + Brand.glowColors.first()
-        val offset = shift * w
+        val offset = (if (motion.ambient) drift.value else 0f) * w
         val horizontal = Brush.horizontalGradient(colors, startX = -w + offset, endX = w + offset)
         val reach = size.height * (0.45f + 0.55f * energy)
         drawRect(horizontal, topLeft = Offset(0f, size.height - reach), alpha = alpha * 0.85f)

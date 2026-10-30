@@ -10,6 +10,8 @@ import dev.marionette.agent.ModelStats
 import dev.marionette.agent.SystemPrompt
 import dev.marionette.agent.TraceWriter
 import dev.marionette.agent.UnlockTip
+import dev.marionette.audio.AudioRoute
+import dev.marionette.audio.AudioRoutes
 import dev.marionette.health.HealthMonitor
 import dev.marionette.launch.Launcher
 import dev.marionette.llm.ModelPrices
@@ -18,15 +20,18 @@ import dev.marionette.settings.SettingsStore
 import dev.marionette.tools.ToolRegistry
 import dev.marionette.tools.Tools
 import java.io.File
+import dev.marionette.core.Logger
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 class AppGraph(context: Context) {
     val app: Context = context.applicationContext
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + CoroutineExceptionHandler { _, e -> Logger.e("App task failed", e) })
     val settings = SettingsStore(app, scope)
-    val device = DeviceSnapshotProvider(app)
+    val audioRoutes = AudioRoutes(app, scope, File(app.filesDir, "audio-devices.json")).also { it.start() }
+    val device = DeviceSnapshotProvider(app, { AudioRoute.ANDROID_AUTO_ID in audioRoutes.connected.value }, audioRoutes::describe) { playback.isHeld(it) }
     val launcher = Launcher(app) { device.isKeyguardShowing }
     val conversation = Conversation(File(app.filesDir, "chats"), scope)
     val playback = PlaybackHold(app)

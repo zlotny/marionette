@@ -18,8 +18,10 @@ iconsExtended = "1.7.8"
 splashscreen = "1.2.0"
 material3 = "1.5.0-beta01"
 tink = "1.23.0"
+carApp = "1.7.0"
 
 [libraries]
+androidx-car-app = { module = "androidx.car.app:app", version.ref = "carApp" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }

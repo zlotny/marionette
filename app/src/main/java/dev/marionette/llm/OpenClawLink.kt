@@ -126,9 +126,11 @@ object OpenClawLink {
         return LinkResult.Failed(error?.string("message") ?: "connect failed")
     }
 
-    fun event(frame: JsonObject): LinkEvent? {
+    fun event(frame: JsonObject, key: String? = null): LinkEvent? {
         if (frame.string("type") != "event" || frame.string("event") != "agent") return null
         val payload = frame["payload"].obj() ?: return null
+        val from = payload.string("sessionKey")
+        if (key != null && from != null && !from.endsWith(key)) return null
         if (payload.string("stream") != "item") return null
         val data = payload["data"].obj() ?: return null
         val phase = data.string("phase")
@@ -219,7 +221,8 @@ object OpenClawLink {
             })
             if (subscribed.boolean("ok") != true) throw LinkException(LinkResult.Failed(subscribed["error"].obj()?.string("message") ?: "subscribe failed"))
             onReady(result)
-            while (true) event(connection.next())?.let(onEvent)
+            val key = sessionKey(user)
+            while (true) event(connection.next(), key)?.let(onEvent)
         }
     }
 
@@ -234,7 +237,7 @@ object OpenClawLink {
             do challenge = next() while (challenge.string("event") != "connect.challenge")
             val payload = challenge["payload"].obj()
             val nonce = payload?.string("nonce").orEmpty()
-            val signedAt = payload?.get("ts")?.toString()?.toLongOrNull() ?: System.currentTimeMillis()
+            val signedAt = payload?.get("ts")?.toString()?.trim('"')?.toLongOrNull() ?: System.currentTimeMillis()
             connectResult(request("connect", connectParams(identity, nonce, signedAt, secret, token, scopes)), token)
         }
 

@@ -3,10 +3,12 @@ package dev.marionette.llm
 import dev.marionette.core.AppJson
 import dev.marionette.core.Http
 import dev.marionette.core.arr
+import dev.marionette.core.Logger
 import dev.marionette.core.await
 import dev.marionette.core.int
 import dev.marionette.core.obj
 import dev.marionette.core.parseObject
+import dev.marionette.core.readCancellable
 import dev.marionette.core.string
 import dev.marionette.core.text
 import kotlinx.coroutines.Dispatchers
@@ -39,15 +41,19 @@ class OpenAiChatBackend(
         system: String,
         messages: List<ChatMessage>,
         tools: List<ToolSpec>,
+        noTools: Boolean,
+        onAccepted: () -> Unit,
+        onUpload: (written: Long, total: Long) -> Unit,
         onText: (String) -> Unit,
     ): LlmReply = withContext(Dispatchers.IO) {
-        val body = requestBody(system, messages, tools)
+        val body = requestBody(system, messages, tools, noTools)
         val request = authorized(Request.Builder().url("${baseUrl.trimEnd('/')}/chat/completions"))
             .header("Accept", "text/event-stream")
-            .post(AppJson.encodeToString(JsonObject.serializer(), body).toRequestBody(JSON))
+            .post(ProgressBody(AppJson.encodeToString(JsonObject.serializer(), body).toByteArray().also { Logger.i("Agent request ${it.size} bytes") }, JSON, onUpload))
             .build()
-        client.newCall(request).await().use { response ->
+        client.newCall(request).readCancellable { response ->
             if (!response.isSuccessful) throw response.toLlmException()
+            onAccepted()
             val accumulator = Accumulator()
             val contentType = response.header("Content-Type").orEmpty()
             if (contentType.contains("event-stream")) {
@@ -81,7 +87,7 @@ class OpenAiChatBackend(
         return builder
     }
 
-    fun requestBody(system: String, messages: List<ChatMessage>, tools: List<ToolSpec>): JsonObject = buildJsonObject {
+    fun requestBody(system: String, messages: List<ChatMessage>, tools: List<ToolSpec>, noTools: Boolean = false): JsonObject = buildJsonObject {
         put("model", model)
         put("stream", true)
         putJsonObject("stream_options") { put("include_usage", true) }
@@ -139,12 +145,12 @@ class OpenAiChatBackend(
                         putJsonObject("function") {
                             put("name", tool.name)
                             put("description", tool.description)
-                            put("parameters", tool.parameters)
+                            if (tool.parameters["properties"]?.let { it as? kotlinx.serialization.json.JsonObject }?.isNotEmpty() == true) put("parameters", tool.parameters)
                         }
                     }
                 }
             }
-            put("tool_choice", "auto")
+            put("tool_choice", if (noTools) "none" else "auto")
         }
     }
 

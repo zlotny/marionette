@@ -10,6 +10,10 @@ interface SttSession {
     fun speculate() = Unit
 
     fun dropSpeculation() = Unit
+
+    val resumable: Boolean get() = false
+
+    fun recorded(): ShortArray? = null
 }
 
 interface SpeechToText {

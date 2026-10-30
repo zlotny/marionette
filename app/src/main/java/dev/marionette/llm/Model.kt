@@ -23,6 +23,9 @@ interface LlmBackend {
         system: String,
         messages: List<ChatMessage>,
         tools: List<ToolSpec>,
+        noTools: Boolean = false,
+        onAccepted: () -> Unit = {},
+        onUpload: (written: Long, total: Long) -> Unit = { _, _ -> },
         onText: (String) -> Unit = {},
     ): LlmReply
 

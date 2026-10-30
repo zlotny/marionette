@@ -47,7 +47,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.layout.widthIn
 import androidx.core.content.ContextCompat
 import dev.marionette.R
 import dev.marionette.health.BackendHealth
@@ -110,19 +114,18 @@ private val Issue.presentation: IssuePresentation
 private val Issue.severe: Boolean get() = this != Issue.NO_WAKE && this != Issue.PAUSED
 
 @Composable
-fun HealthPill(issue: Issue, onClick: () -> Unit) {
+fun HealthBadge(issue: Issue, onClick: () -> Unit) {
     val severe = issue.severe
+    val label = stringResource(issue.presentation.pill)
     Surface(
         onClick = onClick,
         shape = CircleShape,
         color = if (severe) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.tertiaryContainer,
         contentColor = if (severe) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onTertiaryContainer,
-        modifier = Modifier.padding(end = 4.dp),
+        modifier = Modifier.padding(horizontal = 4.dp).size(40.dp).semantics { contentDescription = label },
     ) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(if (severe) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary))
-            Spacer(Modifier.size(6.dp))
-            Text(stringResource(issue.presentation.pill), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        Box(contentAlignment = Alignment.Center) {
+            Icon(issue.presentation.icon, null, Modifier.size(20.dp))
         }
     }
 }

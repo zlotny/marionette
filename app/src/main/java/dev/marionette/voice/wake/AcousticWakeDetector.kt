@@ -55,6 +55,16 @@ class AcousticWakeDetector(
 
     val wakeArmed: Boolean get() = wakeTracks.isNotEmpty()
 
+    fun reset() {
+        wakeTracks.forEach { it.reset() }
+        stopTracks.forEach { it.reset() }
+        melFrames.clear()
+        levels.clear()
+        pendingCount = 0
+        melInput.fill(0f)
+        quietHops = Int.MAX_VALUE / 2
+    }
+
     val stopArmed: Boolean get() = stopTracks.isNotEmpty()
 
     val wakeUsable: Int get() = wakeTracks.count { it.limit >= WakeSensitivity.MIN_THRESHOLD }
@@ -107,15 +117,16 @@ class AcousticWakeDetector(
         }
         val stopping = listenForStop && stopTracks.isNotEmpty()
         if (wakeTracks.isEmpty() && !stopping) return null
-        val frame = embedder.embed(listOf(melFrames.toList())).first()
+        val frame = embedder.embedWindow(melFrames)
         val wakeScores = wakeTracks.map { it.push(frame) }
         val stopScores = if (stopping) stopTracks.map { it.push(frame) } else emptyList()
         val wakeScore = wakeScores.minOrNull() ?: Float.POSITIVE_INFINITY
         val stopScore = stopScores.minOrNull() ?: Float.POSITIVE_INFINITY
-        val stopVotes = votes(stopTracks, stopScores, threshold)
+        val stopVotes = votes(stopTracks, stopScores, maxOf(threshold, STOP_THRESHOLD))
         val wakeVotes = votes(wakeTracks, wakeScores, threshold)
         val stopHit = stopVotes > 0
-        val wakeHit = wakeVotes >= minOf(VOTES, wakeTracks.size) && levels.max() >= minPhraseDbfs
+        val usable = wakeTracks.count { it.limit >= threshold }.coerceAtLeast(1)
+        val wakeHit = wakeVotes >= minOf(VOTES, usable) && levels.max() >= minPhraseDbfs
         val stop = stopVotes > 0 && stopHit && framesSinceStop * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
         val wake = !stop && wakeVotes > 0 && wakeHit && framesSinceWake * SpeechEmbedder.STEP_SECONDS > REFRACTORY_SECONDS
         if (stop) framesSinceStop = 0
@@ -139,6 +150,7 @@ class AcousticWakeDetector(
         private const val NOISE_MARGIN = 0.05f
         private const val SPEECH_MARGIN = 0f
         private const val VOTES = 2
+        private const val STOP_THRESHOLD = 0.16f
         private const val VOTE_HOPS = 4
         private const val LEVEL_HOPS = 20
         fun levelDbfs(pcm: FloatArray, count: Int, offset: Int = 0): Float {
@@ -176,13 +188,15 @@ class AcousticWakeDetector(
         }
 
         fun save(file: File, templates: List<List<FloatArray>>) {
-            DataOutputStream(file.outputStream().buffered()).use { out ->
+            val temp = File(file.parentFile, "${file.name}.tmp")
+            DataOutputStream(temp.outputStream().buffered()).use { out ->
                 out.writeInt(templates.size)
                 templates.forEach { t ->
                     out.writeInt(t.size)
                     t.forEach { frame -> frame.forEach(out::writeFloat) }
                 }
             }
+            temp.renameTo(file)
         }
 
         fun load(file: File): List<List<FloatArray>> {

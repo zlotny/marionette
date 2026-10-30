@@ -17,7 +17,7 @@ import java.io.IOException
 
 class OverpassClient(
     private val endpoints: List<String> = DEFAULT_ENDPOINTS,
-    private val client: OkHttpClient = Http.client,
+    private val client: OkHttpClient = Http.tools,
 ) {
     suspend fun search(center: LatLng, radiusMeters: Int, nameQuery: String?, category: PlaceCategory?): List<Place> =
         withContext(Dispatchers.IO) {
@@ -83,6 +83,7 @@ class OverpassClient(
                 location = LatLng(lat, lng),
                 category = tags.string("amenity") ?: tags.string("shop") ?: tags.string("tourism"),
                 openingHours = tags.string("opening_hours"),
+                phone = tags.string("phone") ?: tags.string("contact:phone"),
             )
         }.distinctBy { "${it.name}|${"%.4f".format(java.util.Locale.US, it.location.lat)}|${"%.4f".format(java.util.Locale.US, it.location.lng)}" }
 

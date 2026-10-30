@@ -42,18 +42,20 @@ class ModelStats(private val file: File?) {
 
     suspend fun record(provider: String, model: String, thinking: String, millis: Long, inputTokens: Int?, outputTokens: Int?) {
         val key = key(provider, model, thinking)
-        val next = _stats.updateAndGet { current ->
+        _stats.updateAndGet { current ->
             current + (key to (current[key]?.add(millis, inputTokens, outputTokens) ?: StepStats.first(millis, inputTokens, outputTokens)))
         }
         file ?: return
-        withContext(Dispatchers.IO) {
+        withContext(writer) {
             runCatching {
                 val temp = File(file.parentFile, file.name + ".tmp")
-                temp.writeText(AppJson.encodeToString(serializer, next))
+                temp.writeText(AppJson.encodeToString(serializer, _stats.value))
                 temp.renameTo(file)
             }
         }
     }
+
+    private val writer = Dispatchers.IO.limitedParallelism(1)
 
     fun get(provider: String, model: String, thinking: String): StepStats? = _stats.value[key(provider, model, thinking)]
 
