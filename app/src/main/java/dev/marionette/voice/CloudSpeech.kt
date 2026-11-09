@@ -10,6 +10,8 @@ import dev.marionette.core.string
 import dev.marionette.llm.toLlmException
 import dev.marionette.settings.AppSettings
 import dev.marionette.settings.TtsCloud
+import dev.marionette.settings.TtsEngine
+import dev.marionette.voice.phonon.Phonon
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +26,24 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-data class CloudVoice(val baseUrl: String, val key: String, val model: String, val voice: String) {
+sealed interface SpeechSource {
+    companion object {
+        fun from(s: AppSettings): SpeechSource? = if (s.ttsEngine == TtsEngine.PHONON) PhononVoice.from(s) else CloudVoice.from(s)
+    }
+}
+
+data class PhononVoice(val voices: Map<String, String>, val fallback: String) : SpeechSource {
+    fun voiceFor(language: String): String = voices[Phonon.language(language)] ?: fallback
+
+    companion object {
+        fun from(s: AppSettings): PhononVoice? {
+            if (!Phonon.installed()) return null
+            return PhononVoice(s.phononVoices, s.phononVoices[Phonon.language(s.language)].orEmpty())
+        }
+    }
+}
+
+data class CloudVoice(val baseUrl: String, val key: String, val model: String, val voice: String) : SpeechSource {
     companion object {
         fun from(s: AppSettings): CloudVoice? {
             if (!s.cloudSpeech) return null

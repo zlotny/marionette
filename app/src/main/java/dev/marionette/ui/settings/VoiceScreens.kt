@@ -37,6 +37,20 @@ import dev.marionette.settings.Credential
 import dev.marionette.settings.Languages
 import dev.marionette.settings.SttCloud
 import dev.marionette.settings.SttEngine
+import dev.marionette.voice.SpeechSource
+import dev.marionette.voice.PhononVoice
+import dev.marionette.ui.voice.localizedString
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Stop
+import dev.marionette.voice.phonon.Phonon
+import dev.marionette.voice.stt.Parakeet
+import dev.marionette.core.ModelDownload
+import dev.marionette.core.ModelState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import dev.marionette.settings.TtsCloud
 import dev.marionette.settings.TtsEngine
 import dev.marionette.voice.CloudSpeech
@@ -68,6 +82,7 @@ import kotlin.math.roundToInt
 @Composable
 fun RecognitionScreen(onBack: () -> Unit) {
     val settings by MarionetteApp.graph.settings.settings.collectAsStateWithLifecycle()
+    val parakeet by Parakeet.state.collectAsStateWithLifecycle()
 
     SettingsScaffold(title = stringResource(R.string.voice_group_recognition), onBack = onBack) {
         item {
@@ -84,6 +99,18 @@ fun RecognitionScreen(onBack: () -> Unit) {
                 item { i, n ->
                     RadioCardRow(
                         i, n,
+                        headline = stringResource(R.string.voice_engine_parakeet),
+                        supporting = stringResource(R.string.voice_engine_parakeet_body),
+                        selected = settings.sttEngine == SttEngine.PARAKEET,
+                        onClick = {
+                            updateSettings { it.copy(sttEngine = SttEngine.PARAKEET) }
+                            if (parakeet == ModelState.Missing) Parakeet.model.download()
+                        },
+                    )
+                }
+                item { i, n ->
+                    RadioCardRow(
+                        i, n,
                         headline = stringResource(R.string.voice_engine_cloud),
                         supporting = stringResource(R.string.voice_engine_cloud_body),
                         selected = settings.sttEngine == SttEngine.CLOUD,
@@ -91,6 +118,14 @@ fun RecognitionScreen(onBack: () -> Unit) {
                     )
                 }
             }
+        }
+        if (settings.sttEngine == SttEngine.PARAKEET) {
+            item {
+                SettingsGroup(stringResource(R.string.voice_parakeet_model)) {
+                    item { i, n -> ModelRow(i, n, stringResource(R.string.voice_parakeet_title), Parakeet.model, parakeet, Parakeet::delete) }
+                }
+            }
+            item { SettingsNote(stringResource(R.string.voice_parakeet_note)) }
         }
         if (settings.sttEngine == SttEngine.CLOUD) {
             item {
@@ -164,12 +199,43 @@ fun RecognitionScreen(onBack: () -> Unit) {
 }
 
 @Composable
+fun ModelRow(index: Int, count: Int, title: String, model: ModelDownload, state: ModelState, onDelete: () -> Unit) {
+    val size = megabytes(model.totalBytes)
+    SettingsRow(
+        index, count,
+        headline = title,
+        supporting = when (state) {
+            ModelState.Missing -> stringResource(R.string.model_missing, size)
+            is ModelState.Downloading -> stringResource(R.string.model_downloading, megabytes(state.bytes), size)
+            ModelState.Ready -> stringResource(R.string.model_ready, size)
+            is ModelState.Failed -> stringResource(R.string.model_failed, state.message)
+        },
+        leading = { SettingsIcon(Icons.Rounded.Memory) },
+        trailing = {
+            when (state) {
+                ModelState.Missing, is ModelState.Failed -> TextButton(onClick = model::download) { Text(stringResource(R.string.model_download)) }
+                is ModelState.Downloading -> TextButton(onClick = model::cancel) { Text(stringResource(R.string.model_cancel)) }
+                ModelState.Ready -> TextButton(onClick = onDelete) { Text(stringResource(R.string.model_delete)) }
+            }
+        },
+    )
+}
+
+private fun megabytes(bytes: Long): Long = bytes / 1_000_000
+
+@Composable
 fun SpeechScreen(onBack: () -> Unit) {
     val settings by MarionetteApp.graph.settings.settings.collectAsStateWithLifecycle()
     val speaker = rememberSpeaker()
     var voices by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
     var rate by remember { mutableFloatStateOf(settings.speechRate) }
     val defaultVoice = stringResource(R.string.voice_default)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val agentNameValue = agentName()
+    var preview by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val phonon by Phonon.state.collectAsStateWithLifecycle()
+    val catalog = remember(phonon) { Phonon.catalog() }
 
     LaunchedEffect(settings.language) {
         val locale = Languages.locale(settings.language)
@@ -212,6 +278,18 @@ fun SpeechScreen(onBack: () -> Unit) {
                         supporting = stringResource(R.string.voice_speech_cloud_body),
                         selected = settings.ttsEngine == TtsEngine.CLOUD,
                         onClick = { updateSettings { it.copy(ttsEngine = TtsEngine.CLOUD) } },
+                    )
+                }
+                item { i, n ->
+                    RadioCardRow(
+                        i, n,
+                        headline = stringResource(R.string.voice_speech_phonon),
+                        supporting = stringResource(R.string.voice_speech_phonon_body),
+                        selected = settings.ttsEngine == TtsEngine.PHONON,
+                        onClick = {
+                            updateSettings { it.copy(ttsEngine = TtsEngine.PHONON) }
+                            if (phonon == ModelState.Missing) Phonon.model.download()
+                        },
                     )
                 }
             }
@@ -258,6 +336,48 @@ fun SpeechScreen(onBack: () -> Unit) {
                     item { i, n ->
                         CredentialRow(i, n, Credential.of(cloud.provider), headline = stringResource(R.string.voice_cloud_key, cloud.title))
                     }
+                } else if (settings.ttsEngine == TtsEngine.PHONON) {
+                    val agent = agentNameValue
+                    item { i, n -> ModelRow(i, n, stringResource(R.string.voice_phonon_title), Phonon.model, phonon, Phonon::delete) }
+                    val languages = ((listOf(settings.language) + settings.extraLanguages).map { Phonon.language(it) } + catalog.map { it.language }).distinct()
+                    languages.forEach { lang ->
+                        item { i, n ->
+                            ChoiceRow(
+                                i, n,
+                                headline = stringResource(R.string.voice_phonon_voice, Languages.locale(lang).displayLanguage),
+                                options = listOf("" to defaultVoice) + catalog.filter { it.language == lang }.map { it.name to it.name },
+                                selected = settings.phononVoices[lang].orEmpty(),
+                                describe = { name -> catalog.firstOrNull { it.name == name }?.let { ChoiceDetail(it.description) } },
+                                onSelect = { name -> updateSettings { it.copy(phononVoices = if (name.isEmpty()) it.phononVoices - lang else it.phononVoices + (lang to name)) } },
+                                leading = { SettingsIcon(Icons.Rounded.RecordVoiceOver) },
+                                trailing = { name ->
+                                    val playing = preview == lang to name
+                                    IconButton(onClick = {
+                                        speaker.stop()
+                                        if (playing) {
+                                            preview = null
+                                        } else {
+                                            preview = lang to name
+                                            scope.launch {
+                                                val route = MarionetteApp.graph.audioRoutes.route()
+                                                try {
+                                                    speaker.speak(
+                                                        localizedString(context, lang, R.string.voice_test_phrase, agent), lang, "", rate,
+                                                        PhononVoice(mapOf(lang to name), name), route,
+                                                        gain = route.speechGain(settings.phoneVolume),
+                                                    )
+                                                } finally {
+                                                    if (preview == lang to name) preview = null
+                                                }
+                                            }
+                                        }
+                                    }) {
+                                        Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, stringResource(if (playing) R.string.voice_preview_stop else R.string.voice_preview_play))
+                                    }
+                                },
+                            )
+                        }
+                    }
                 } else {
                     item { i, n ->
                         ChoiceRow(
@@ -284,6 +404,9 @@ fun SpeechScreen(onBack: () -> Unit) {
                 }
             }
         }
+        if (settings.ttsEngine == TtsEngine.PHONON) {
+            item { SettingsNote(stringResource(R.string.voice_phonon_note)) }
+        }
         if (settings.ttsEngine == TtsEngine.CLOUD) {
             item {
                 SettingsNote(
@@ -293,7 +416,7 @@ fun SpeechScreen(onBack: () -> Unit) {
             item { SettingsNote(stringResource(R.string.voice_tts_models_note)) }
         }
         item {
-            VoiceTestButton(settings.language, settings.ttsVoice, rate, Modifier.fillMaxWidth(), cloud = CloudVoice.from(settings.copy(speechRate = rate)))
+            VoiceTestButton(settings.language, settings.ttsVoice, rate, Modifier.fillMaxWidth(), cloud = SpeechSource.from(settings.copy(speechRate = rate)))
         }
     }
 }

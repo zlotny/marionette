@@ -120,6 +120,8 @@ class DebugReceiver : BroadcastReceiver() {
             }
             ACTION_TALK -> VoiceService.send(context, VoiceService.ACTION_TALK, intent.getStringExtra("source")?.let { TriggerSource.valueOf(it.uppercase()) } ?: TriggerSource.BUTTON)
             ACTION_CANCEL -> VoiceService.send(context, VoiceService.ACTION_CANCEL)
+            ACTION_SEND_NOW -> VoiceService.send(context, VoiceService.ACTION_SEND_NOW)
+            ACTION_RELOAD -> VoiceService.send(context, VoiceService.ACTION_RELOAD)
             ACTION_RESET -> graph.agent.resetSession()
             ACTION_CONFIRM -> graph.confirmations.pending.value?.let {
                 graph.confirmations.answer(it.id, intent.getBooleanExtra("yes", true))
@@ -135,6 +137,8 @@ class DebugReceiver : BroadcastReceiver() {
         const val ACTION_TALK = "dev.marionette.DEBUG_TALK"
         const val ACTION_ROUTE = "dev.marionette.DEBUG_ROUTE"
         const val ACTION_CANCEL = "dev.marionette.DEBUG_CANCEL"
+        const val ACTION_SEND_NOW = "dev.marionette.DEBUG_SEND_NOW"
+        const val ACTION_RELOAD = "dev.marionette.DEBUG_RELOAD"
         const val ACTION_AUDIO = "dev.marionette.DEBUG_AUDIO"
         const val WAV_HEADER = 44
         const val ACTION_CONFIRM = "dev.marionette.DEBUG_CONFIRM"

@@ -1,2 +1,6 @@
 -keep class ai.onnxruntime.** { *; }
 -dontwarn ai.onnxruntime.**
+-keep class com.sun.jna.** { *; }
+-keep class * implements com.sun.jna.** { *; }
+-keep class dev.marionette.voice.phonon.PhononTTS$* { *; }
+-dontwarn java.awt.**

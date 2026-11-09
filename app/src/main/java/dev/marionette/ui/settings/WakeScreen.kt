@@ -40,9 +40,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.marionette.BuildConfig
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.core.Lab
 import androidx.compose.foundation.layout.size
 import dev.marionette.ui.agentName
 import dev.marionette.access.Access
@@ -54,6 +54,7 @@ import dev.marionette.ui.components.SettingsIcon
 import dev.marionette.ui.components.SettingsNote
 import dev.marionette.ui.components.SettingsRow
 import dev.marionette.ui.components.SettingsScaffold
+import dev.marionette.ui.components.DebugPill
 import dev.marionette.ui.components.SwitchRow
 import dev.marionette.ui.voice.SpeechEnrollment
 import dev.marionette.ui.voice.WakeEnrollment
@@ -96,7 +97,7 @@ fun WakeScreen(onBack: () -> Unit, onOpenSensitivity: () -> Unit, onOpenVoiceTes
                 }
             }
         }
-        if (micGranted && BuildConfig.DEBUG) {
+        if (micGranted && Lab.ON) {
             item {
                 SettingsGroup(null) {
                     item { i, n ->
@@ -105,7 +106,19 @@ fun WakeScreen(onBack: () -> Unit, onOpenSensitivity: () -> Unit, onOpenVoiceTes
                             headline = stringResource(R.string.voice_test_title),
                             supporting = stringResource(R.string.voice_test_entry_body),
                             leading = { SettingsIcon(Icons.Rounded.GraphicEq) },
+                            trailing = { DebugPill() },
                             onClick = onOpenVoiceTest,
+                        )
+                    }
+                    item { i, n ->
+                        SwitchRow(
+                            i, n,
+                            headline = stringResource(R.string.speaker_end),
+                            supporting = stringResource(R.string.speaker_end_body),
+                            checked = settings.speakerEnd,
+                            debug = true,
+                            leading = { SettingsIcon(Icons.Rounded.GraphicEq) },
+                            onCheckedChange = { on -> updateSettings { it.copy(speakerEnd = on) } },
                         )
                     }
                 }

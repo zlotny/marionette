@@ -123,7 +123,7 @@ fun BackendScreen(onBack: () -> Unit, viewModel: BackendViewModel = viewModel())
                                 headline = stringResource(R.string.conversation_mode),
                                 leading = { SettingsIcon(Icons.Rounded.Forum) },
                                 options = listOf(
-                                    false to stringResource(R.string.conversation_fresh),
+                                    false to stringResource(R.string.conversation_fresh, durationLabel(settings.conversationMinutes)),
                                     true to stringResource(R.string.conversation_continuous),
                                 ),
                                 selected = settings.continueConversation,
@@ -132,6 +132,14 @@ fun BackendScreen(onBack: () -> Unit, viewModel: BackendViewModel = viewModel())
                                     viewModel.setContinueConversation(on)
                                 },
                             )
+                        }
+                        if (!settings.continueConversation) {
+                            item { i, n ->
+                                ConversationIdleRow(i, n, settings.conversationMinutes) { minutes ->
+                                    updateSettings { it.copy(conversationMinutes = minutes) }
+                                    viewModel.setConversationMinutes(minutes)
+                                }
+                            }
                         }
                     }
                 }

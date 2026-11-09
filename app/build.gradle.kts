@@ -12,8 +12,8 @@ android {
         applicationId = "dev.marionette"
         minSdk = 29
         targetSdk = 37
-        versionCode = 7
-        versionName = "1.3.0"
+        versionCode = 8
+        versionName = "1.4.0"
         ndk { abiFilters += "arm64-v8a" }
     }
 
@@ -28,11 +28,20 @@ android {
         }
     }
 
+    val lab = providers.gradleProperty("marionette.lab").orNull == "true"
+
+    sourceSets {
+        getByName("debug").assets.directories.add("src/lab/assets")
+        if (lab) getByName("release").assets.directories.add("src/lab/assets")
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            buildConfigField("boolean", "LAB", "true")
         }
         release {
+            buildConfigField("boolean", "LAB", lab.toString())
             signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
@@ -63,6 +72,7 @@ android {
 
 dependencies {
     implementation(libs.onnxruntime.android)
+    implementation(libs.jna) { artifact { type = "aar" } }
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.activity.compose)

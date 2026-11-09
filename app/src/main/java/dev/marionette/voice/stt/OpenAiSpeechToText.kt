@@ -45,6 +45,7 @@ class OpenAiSpeechToText(
         private val audio = ByteArrayOutputStream()
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         @Volatile private var speculation: Deferred<String>? = null
+        @Volatile private var endSample: Long? = null
 
         override fun accept(pcm: ShortArray, count: Int) {
             val bytes = ByteBuffer.allocate(count * 2).order(ByteOrder.LITTLE_ENDIAN)
@@ -71,11 +72,19 @@ class OpenAiSpeechToText(
             return transcribe(snapshot(), language, extraLanguages)
         }
 
+        override fun endAudioAt(sample: Long?) {
+            endSample = sample
+        }
+
         override fun cancel() = scope.cancel()
 
         override val resumable = true
 
-        private fun snapshot(): ByteArray = synchronized(audio) { audio.toByteArray() }
+        private fun snapshot(): ByteArray {
+            val all = synchronized(audio) { audio.toByteArray() }
+            val end = endSample ?: return all
+            return if (end * 2 < all.size) all.copyOf((end * 2).toInt()) else all
+        }
     }
 
     private suspend fun transcribe(pcm: ByteArray, language: String, extraLanguages: List<String>): String {

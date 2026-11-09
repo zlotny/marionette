@@ -41,6 +41,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val recentModels = stringPreferencesKey("recent_models")
         val legacyApiKey = stringPreferencesKey("api_key_sealed")
         val continueConversation = booleanPreferencesKey("continue_conversation")
+        val conversationMinutes = intPreferencesKey("conversation_minutes")
         val gatewayDeviceKey = stringPreferencesKey("gateway_device_key_sealed")
         val gatewayDeviceToken = stringPreferencesKey("gateway_device_token_sealed")
         val gatewayPairedUrl = stringPreferencesKey("gateway_paired_url")
@@ -59,6 +60,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val notificationTalk = booleanPreferencesKey("notification_talk")
         val wakeOverlay = booleanPreferencesKey("wake_overlay")
         val wakeScreenOn = booleanPreferencesKey("wake_screen_on")
+        val speakerEnd = booleanPreferencesKey("speaker_end")
         val sttEngine = stringPreferencesKey("stt_engine")
         val legacySttApiKey = stringPreferencesKey("stt_api_key_sealed")
         val sttCloud = stringPreferencesKey("stt_cloud")
@@ -67,6 +69,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val language = stringPreferencesKey("language")
         val ttsVoice = stringPreferencesKey("tts_voice")
         val ttsEngine = stringPreferencesKey("tts_engine")
+        val phononVoices = stringPreferencesKey("phonon_voices")
         val ttsCloud = stringPreferencesKey("tts_cloud")
         val ttsModel = stringPreferencesKey("tts_model")
         val ttsCloudVoice = stringPreferencesKey("tts_cloud_voice")
@@ -114,6 +117,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             recentModels = p[Keys.recentModels]?.split('\n')?.filter { it.isNotBlank() } ?: defaults.recentModels,
             credentials = readCredentials(p, provider),
             continueConversation = p[Keys.continueConversation] ?: defaults.continueConversation,
+            conversationMinutes = p[Keys.conversationMinutes] ?: defaults.conversationMinutes,
             gatewayDeviceKey = SecretStore.decrypt(p[Keys.gatewayDeviceKey].orEmpty()),
             gatewayDeviceToken = SecretStore.decrypt(p[Keys.gatewayDeviceToken].orEmpty()),
             gatewayPairedUrl = p[Keys.gatewayPairedUrl] ?: defaults.gatewayPairedUrl,
@@ -132,6 +136,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             notificationTalk = p[Keys.notificationTalk] ?: defaults.notificationTalk,
             wakeOverlay = p[Keys.wakeOverlay] ?: defaults.wakeOverlay,
             wakeScreenOn = p[Keys.wakeScreenOn] ?: defaults.wakeScreenOn,
+            speakerEnd = p[Keys.speakerEnd] ?: defaults.speakerEnd,
             sttEngine = p[Keys.sttEngine]?.let { if (it == "OPENAI_CLOUD") SttEngine.CLOUD else runCatching { SttEngine.valueOf(it) }.getOrNull() } ?: defaults.sttEngine,
             sttCloud = p[Keys.sttCloud]?.let { runCatching { SttCloud.valueOf(it) }.getOrNull() } ?: defaults.sttCloud,
             sttModel = p[Keys.sttModel] ?: defaults.sttModel,
@@ -139,6 +144,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             language = p[Keys.language] ?: defaults.language,
             ttsVoice = p[Keys.ttsVoice] ?: defaults.ttsVoice,
             ttsEngine = p[Keys.ttsEngine]?.let { runCatching { TtsEngine.valueOf(it) }.getOrNull() } ?: defaults.ttsEngine,
+            phononVoices = p[Keys.phononVoices]?.split(';')?.mapNotNull { pair -> pair.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }?.toMap() ?: defaults.phononVoices,
             ttsCloud = p[Keys.ttsCloud]?.let { runCatching { TtsCloud.valueOf(it) }.getOrNull() } ?: defaults.ttsCloud,
             ttsModel = p[Keys.ttsModel] ?: defaults.ttsModel,
             ttsCloudVoice = p[Keys.ttsCloudVoice] ?: defaults.ttsCloudVoice,
@@ -189,6 +195,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p.remove(Keys.legacySttApiKey)
         p.remove(Keys.legacyGooglePlacesKey)
         p[Keys.continueConversation] = s.continueConversation
+        p[Keys.conversationMinutes] = s.conversationMinutes
         p[Keys.gatewayDeviceKey] = SecretStore.seal(s.gatewayDeviceKey, p[Keys.gatewayDeviceKey])
         p[Keys.gatewayDeviceToken] = SecretStore.seal(s.gatewayDeviceToken, p[Keys.gatewayDeviceToken])
         p[Keys.gatewayPairedUrl] = s.gatewayPairedUrl
@@ -207,6 +214,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.notificationTalk] = s.notificationTalk
         p[Keys.wakeOverlay] = s.wakeOverlay
         p[Keys.wakeScreenOn] = s.wakeScreenOn
+        p[Keys.speakerEnd] = s.speakerEnd
         p[Keys.sttEngine] = s.sttEngine.name
         p[Keys.sttCloud] = s.sttCloud.name
         p[Keys.sttModel] = s.sttModel
@@ -214,6 +222,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.language] = s.language
         p[Keys.ttsVoice] = s.ttsVoice
         p[Keys.ttsEngine] = s.ttsEngine.name
+        p[Keys.phononVoices] = s.phononVoices.entries.joinToString(";") { "${it.key}=${it.value}" }
         p[Keys.ttsCloud] = s.ttsCloud.name
         p[Keys.ttsModel] = s.ttsModel
         p[Keys.ttsCloudVoice] = s.ttsCloudVoice

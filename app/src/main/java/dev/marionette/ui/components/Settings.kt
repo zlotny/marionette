@@ -153,6 +153,7 @@ fun SwitchRow(
     checked: Boolean,
     leading: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
+    debug: Boolean = false,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
@@ -164,11 +165,29 @@ fun SwitchRow(
         leading = leading,
         enabled = enabled,
         modifier = Modifier.semantics { role = Role.Switch; toggleableState = ToggleableState(checked) },
-        trailing = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+        trailing = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (debug) DebugPill()
+                Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+            }
+        },
         onClick = {
             haptics.performHapticFeedback(if (checked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
             onCheckedChange(!checked)
         },
+    )
+}
+
+private val DEBUG_PILL_COLOR = Color(0xFFC2410C)
+
+@Composable
+fun DebugPill() {
+    Text(
+        stringResource(R.string.debug_pill),
+        style = MaterialTheme.typography.labelMedium,
+        color = Color.White,
+        maxLines = 1,
+        modifier = Modifier.clip(CircleShape).background(DEBUG_PILL_COLOR).padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
 
@@ -211,6 +230,7 @@ fun <T> ChoiceRow(
     leading: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
     describe: (@Composable (T) -> ChoiceDetail?)? = null,
+    trailing: (@Composable (T) -> Unit)? = null,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
@@ -248,13 +268,14 @@ fun <T> ChoiceRow(
                         ) {
                             RadioButton(selected = value == selected, onClick = null)
                             val detail = describe?.invoke(value)
-                            Column(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp)) {
+                            Column(Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp)) {
                                 Text(label, style = MaterialTheme.typography.bodyLarge)
                                 detail?.let {
                                     Text(it.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     it.badge?.let { badge -> ChoiceBadge(badge) }
                                 }
                             }
+                            trailing?.invoke(value)
                         }
                     }
                 }

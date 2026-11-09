@@ -1,4 +1,5 @@
 [versions]
+jna = "5.17.0"
 agp = "9.4.1"
 kotlin = "2.4.21"
 composeBom = "2026.09.00"
@@ -21,6 +22,7 @@ tink = "1.23.0"
 carApp = "1.7.0"
 
 [libraries]
+jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 androidx-car-app = { module = "androidx.car.app:app", version.ref = "carApp" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }

@@ -69,6 +69,7 @@ import dev.marionette.settings.Languages
 import dev.marionette.ui.components.VoiceOrb
 import dev.marionette.ui.components.Waveform
 import dev.marionette.voice.CloudVoice
+import dev.marionette.voice.SpeechSource
 import dev.marionette.voice.Speaker
 import dev.marionette.voice.VoiceBus
 import dev.marionette.voice.VoicePhase
@@ -98,7 +99,7 @@ fun languageOptions(): List<Pair<String, String>> = Languages.supported.map { ta
 }
 
 @Composable
-fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modifier = Modifier, cloud: CloudVoice? = null) {
+fun VoiceTestButton(language: String, voice: String, rate: Float, modifier: Modifier = Modifier, cloud: SpeechSource? = null) {
     val context = LocalContext.current
     val speaker = rememberSpeaker()
     val scope = rememberCoroutineScope()

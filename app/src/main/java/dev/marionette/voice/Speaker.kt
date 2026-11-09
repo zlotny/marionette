@@ -1,6 +1,7 @@
 package dev.marionette.voice
 
 import android.content.Context
+import dev.marionette.voice.phonon.Phonon
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
@@ -116,7 +117,7 @@ class Speaker(private val context: Context, private val routes: AudioRoutes? = n
 
     fun ticket(): Int = epoch
 
-    suspend fun speak(text: String, language: String, voiceName: String, rate: Float, cloud: CloudVoice? = null, route: AudioRoute = AudioRoute.PHONE, ticket: Int = epoch, gain: Float = 1f) {
+    suspend fun speak(text: String, language: String, voiceName: String, rate: Float, cloud: SpeechSource? = null, route: AudioRoute = AudioRoute.PHONE, ticket: Int = epoch, gain: Float = 1f) {
         if (text.isBlank()) return
         val stop = CompletableDeferred<Unit>().also { stopSignal = it }
         if (ticket != epoch || audio.mode in CALL_MODES) return
@@ -130,7 +131,7 @@ class Speaker(private val context: Context, private val routes: AudioRoutes? = n
             if (cloud != null) {
                 audio.requestAudioFocus(output.focus)
                 val rest = try {
-                    speakCloud(text, cloud, rate, stop, output)
+                    speakCloud(text, language, cloud, rate, stop, output)
                 } finally {
                     audio.abandonAudioFocusRequest(output.focus)
                 }
@@ -154,7 +155,7 @@ class Speaker(private val context: Context, private val routes: AudioRoutes? = n
         val tailMillis: Long get() = Earcons.latencyMillis(route, device).toLong()
     }
 
-    private suspend fun speakCloud(text: String, cloud: CloudVoice, rate: Float, stop: CompletableDeferred<Unit>, output: Output): List<String> = coroutineScope {
+    private suspend fun speakCloud(text: String, language: String, cloud: SpeechSource, rate: Float, stop: CompletableDeferred<Unit>, output: Output): List<String> = coroutineScope {
         val chunks = CloudSpeech.chunks(text)
         val offsets = chunkOffsets(text, chunks)
         val started = System.currentTimeMillis()
@@ -163,7 +164,16 @@ class Speaker(private val context: Context, private val routes: AudioRoutes? = n
             chunks.forEach { chunk ->
                 val stream = SpeechStream()
                 streams.send(stream)
-                if (runCatching { CloudSpeech.stream(cloud, chunk, stream) }.isFailure) return@launch
+                val result = runCatching {
+                    when (cloud) {
+                        is CloudVoice -> CloudSpeech.stream(cloud, chunk, stream)
+                        is PhononVoice -> Phonon.stream(chunk, language, cloud.voiceFor(language), stream)
+                    }
+                }
+                if (result.isFailure) {
+                    result.exceptionOrNull()?.takeIf { cloud is PhononVoice }?.let { Logger.w("Phonon speech failed", it) }
+                    return@launch
+                }
             }
             streams.close()
         }

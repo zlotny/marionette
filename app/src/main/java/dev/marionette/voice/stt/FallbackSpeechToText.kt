@@ -22,6 +22,7 @@ class FallbackSpeechToText(
         val session = primary.start(language, extraLanguages, onPartial)
         return object : SttSession {
             private val audio = ArrayList<ShortArray>()
+            @Volatile private var endSample: Long? = null
 
             override fun accept(pcm: ShortArray, count: Int) {
                 session.accept(pcm, count)
@@ -32,18 +33,25 @@ class FallbackSpeechToText(
 
             override fun dropSpeculation() = session.dropSpeculation()
 
+            override fun endAudioAt(sample: Long?) {
+                endSample = sample
+                session.endAudioAt(sample)
+            }
+
             override fun cancel() = session.cancel()
 
             override val resumable: Boolean get() = session.resumable
 
             override fun recorded(): ShortArray = synchronized(audio) {
-                ShortArray(audio.sumOf { it.size }).also { out ->
+                val all = ShortArray(audio.sumOf { it.size }).also { out ->
                     var offset = 0
                     audio.forEach { chunk ->
                         chunk.copyInto(out, offset)
                         offset += chunk.size
                     }
                 }
+                val end = endSample
+                if (end != null && end < all.size) all.copyOf(end.toInt()) else all
             }
 
             override suspend fun finish(): String = coroutineScope {
@@ -82,11 +90,11 @@ class FallbackSpeechToText(
 
             private suspend fun local(): String? {
                 if (!fallback.isAvailable()) return null
-                val chunks = synchronized(audio) { audio.toList() }
+                val pcm = recorded()
                 return attempt {
                     val local = fallback.start(language, extraLanguages) {}
                     try {
-                        chunks.forEach { local.accept(it, it.size) }
+                        local.accept(pcm, pcm.size)
                         local.finish()
                     } catch (e: Throwable) {
                         local.cancel()

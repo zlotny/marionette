@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material3.Button
@@ -343,11 +344,33 @@ fun AssistOverlay(sinceTurnId: Long, onCancelTurn: () -> Unit, onDismiss: () -> 
                                     contentColor = MaterialTheme.colorScheme.onError,
                                 ),
                             ) { Icon(Icons.Rounded.Close, stringResource(R.string.home_cancel), Modifier.size(32.dp)) }
-                            Spacer(Modifier.weight(1f))
+                            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                                SendNowButton(
+                                    visible = voice.phase == VoicePhase.LISTENING && confirmation == null && !closing,
+                                    motion = motion,
+                                    onClick = { VoiceService.send(context, VoiceService.ACTION_SEND_NOW) },
+                                )
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SendNowButton(visible: Boolean, motion: Motion, onClick: () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = if (motion.reduced) EnterTransition.None else fadeIn(tween(150)) + scaleIn(initialScale = 0.8f),
+        exit = if (motion.reduced) ExitTransition.None else fadeOut(tween(120)) + scaleOut(targetScale = 0.8f),
+    ) {
+        Button(onClick = onClick, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 56.dp)) {
+            Icon(Icons.AutoMirrored.Rounded.Send, null, Modifier.size(ButtonDefaults.IconSize))
+            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+            Text(stringResource(R.string.overlay_send_now), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

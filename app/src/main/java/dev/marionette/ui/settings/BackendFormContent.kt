@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,6 +59,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.marionette.MarionetteApp
 import dev.marionette.R
+import dev.marionette.settings.ConversationIdle
+import dev.marionette.ui.components.SliderRow
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.ButtonDefaults
@@ -87,6 +91,7 @@ class BackendActions(
     val onLoadModels: () -> Unit,
     val onCheckGateway: () -> Unit,
     val onContinueConversation: (Boolean) -> Unit,
+    val onConversationMinutes: (Int) -> Unit,
     val onPair: () -> Unit,
     val onUnpair: () -> Unit,
     val onTest: () -> Unit,
@@ -99,6 +104,7 @@ fun BackendViewModel.actions() = BackendActions(
     onLoadModels = ::loadModels,
     onCheckGateway = ::checkGateway,
     onContinueConversation = ::setContinueConversation,
+    onConversationMinutes = ::setConversationMinutes,
     onPair = ::pair,
     onUnpair = ::unpair,
     onTest = ::test,
@@ -327,12 +333,15 @@ private fun GatewaySetup(form: BackendForm, actions: BackendActions, compact: Bo
             item { i, n ->
                 SettingsRow(
                     i, n,
-                    headline = stringResource(R.string.conversation_fresh),
+                    headline = stringResource(R.string.conversation_fresh, durationLabel(form.conversationMinutes)),
                     supporting = stringResource(R.string.conversation_fresh_body),
                     leading = { RadioButton(selected = !form.continueConversation, onClick = null) },
                     modifier = Modifier.semantics { role = Role.RadioButton; selected = !form.continueConversation },
                     onClick = { actions.onContinueConversation(false) },
                 )
+            }
+            if (!form.continueConversation) {
+                item { i, n -> ConversationIdleRow(i, n, form.conversationMinutes, actions.onConversationMinutes) }
             }
             item { i, n ->
                 SettingsRow(
@@ -348,6 +357,28 @@ private fun GatewaySetup(form: BackendForm, actions: BackendActions, compact: Bo
         LiveProgressSection(form, actions)
     }
     TestSection(form, actions)
+}
+
+@Composable
+internal fun durationLabel(minutes: Int): String = when {
+    minutes < 60 -> stringResource(R.string.unit_min, minutes)
+    minutes % 60 == 0 -> stringResource(R.string.unit_h, minutes / 60)
+    else -> stringResource(R.string.unit_h_min, minutes / 60, minutes % 60)
+}
+
+@Composable
+internal fun ConversationIdleRow(index: Int, count: Int, minutes: Int, onChange: (Int) -> Unit) {
+    var stop by remember(minutes) { mutableFloatStateOf(ConversationIdle.stopOf(minutes).toFloat()) }
+    SliderRow(
+        index, count,
+        headline = stringResource(R.string.conversation_idle),
+        valueLabel = durationLabel(ConversationIdle.STOPS[stop.roundToInt()]),
+        value = stop,
+        valueRange = 0f..ConversationIdle.STOPS.lastIndex.toFloat(),
+        steps = ConversationIdle.STOPS.size - 2,
+        onValueChange = { stop = it },
+        onValueChangeFinished = { onChange(ConversationIdle.STOPS[stop.roundToInt()]) },
+    )
 }
 
 @Composable

@@ -13,6 +13,7 @@ import dev.marionette.llm.OpenClawGateway
 import dev.marionette.llm.OpenClawLink
 import dev.marionette.llm.ProbeResult
 import dev.marionette.llm.Provider
+import dev.marionette.settings.ConversationIdle
 import dev.marionette.settings.Credential
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -36,6 +37,7 @@ data class BackendForm(
     val apiKey: String,
     val model: String,
     val continueConversation: Boolean = false,
+    val conversationMinutes: Int = ConversationIdle.DEFAULT_MINUTES,
     val models: List<String> = emptyList(),
     val loadingModels: Boolean = false,
     val modelsError: String? = null,
@@ -75,9 +77,9 @@ class BackendViewModel : ViewModel() {
     private fun saved(provider: Provider): BackendForm {
         val s = settings.current
         return if (s.provider == provider) {
-            BackendForm(provider, s.baseUrl, s.apiKey, s.model, s.continueConversation, pairing = pairState(s.baseUrl))
+            BackendForm(provider, s.baseUrl, s.apiKey, s.model, s.continueConversation, s.conversationMinutes, pairing = pairState(s.baseUrl))
         } else {
-            BackendForm(provider, provider.defaultBaseUrl, s.key(Credential.of(provider)), provider.suggestedModel, s.continueConversation)
+            BackendForm(provider, provider.defaultBaseUrl, s.key(Credential.of(provider)), provider.suggestedModel, s.continueConversation, s.conversationMinutes)
         }
     }
 
@@ -116,6 +118,8 @@ class BackendViewModel : ViewModel() {
     fun setModel(value: String) = edit(resetGateway = false) { it.copy(model = value) }
 
     fun setContinueConversation(value: Boolean) = edit(resetGateway = false) { it.copy(continueConversation = value) }
+
+    fun setConversationMinutes(value: Int) = edit(resetGateway = false) { it.copy(conversationMinutes = value) }
 
     private fun edit(resetGateway: Boolean, transform: (BackendForm) -> BackendForm) = _form.update {
         val next = transform(it).copy(probe = null, saved = false)
@@ -237,6 +241,7 @@ class BackendViewModel : ViewModel() {
                     baseUrl = config.baseUrl,
                     model = config.model,
                     continueConversation = form.continueConversation,
+                    conversationMinutes = form.conversationMinutes,
                 ).withKey(Credential.of(config.provider), config.apiKey)
             }
             _form.update { it.copy(saved = true, baseUrl = if (it.isGateway) config.baseUrl else it.baseUrl) }

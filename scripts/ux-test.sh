@@ -32,6 +32,19 @@ if [ ! -f "$WAV" ]; then
     -ar 16000 -ac 1 -c:a pcm_s16le -map_metadata -1 -fflags +bitexact -flags:a +bitexact "$WAV"
 fi
 adb push -q "$WAV" "/sdcard/Android/data/$PKG/files/ux_speech.wav"
+TALK=build/ux/ux_talking.wav
+if [ ! -f "$TALK" ]; then
+  say -v Monica -r 150 -o build/ux/talking.aiff "Entonces le dije a mi hermano que el coche nuevo gasta mucho menos que el viejo y que si vamos el sábado a casa de los abuelos podemos llevar también a los niños y comer todos juntos en el pueblo"
+  ffmpeg -loglevel error -y -i build/ux/talking.aiff -ar 16000 -ac 1 -c:a pcm_s16le -map_metadata -1 -fflags +bitexact -flags:a +bitexact "$TALK"
+fi
+adb push -q "$TALK" "/sdcard/Android/data/$PKG/files/ux_talking.wav"
+READING=$(ls build/wakefp/samples/speech-*.wav 2>/dev/null | head -1 || true)
+if [ -n "$READING" ]; then
+  ffmpeg -loglevel error -y -ss 20 -t 7 -i "$READING" -i "$TALK" -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" \
+    -ar 16000 -ac 1 -c:a pcm_s16le -map_metadata -1 -fflags +bitexact -flags:a +bitexact build/ux/ux_me_then_others.wav
+  adb push -q build/ux/ux_me_then_others.wav "/sdcard/Android/data/$PKG/files/ux_me_then_others.wav"
+  adb push -q "$READING" /data/local/tmp/ux_speech_profile.wav
+fi
 adb shell pm grant $PKG android.permission.ACCESS_LOCAL_NETWORK
 adb shell pm grant $PKG android.permission.RECORD_AUDIO
 adb shell cmd role add-role-holder android.app.role.ASSISTANT $PKG 0

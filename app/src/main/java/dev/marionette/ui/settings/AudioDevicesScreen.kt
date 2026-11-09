@@ -1,7 +1,7 @@
 package dev.marionette.ui.settings
 
 import kotlin.math.roundToInt
-import dev.marionette.voice.CloudVoice
+import dev.marionette.voice.SpeechSource
 import dev.marionette.ui.voice.VoiceTestButton
 import dev.marionette.ui.components.SliderRow
 import dev.marionette.audio.VolumeOverride
@@ -209,7 +209,7 @@ private fun PhoneVolumeScreen(onBack: () -> Unit) {
 @Composable
 private fun VolumeTest() {
     val settings by MarionetteApp.graph.settings.settings.collectAsStateWithLifecycle()
-    VoiceTestButton(settings.language, settings.ttsVoice, settings.speechRate, Modifier.fillMaxWidth(), cloud = CloudVoice.from(settings))
+    VoiceTestButton(settings.language, settings.ttsVoice, settings.speechRate, Modifier.fillMaxWidth(), cloud = SpeechSource.from(settings))
 }
 
 @Composable

@@ -4,6 +4,7 @@ import dev.marionette.ui.components.settingsPanelColor
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.marionette.R
+import dev.marionette.ui.components.DebugPill
 import dev.marionette.ui.components.SettingsNote
 import androidx.compose.foundation.layout.heightIn
 import dev.marionette.ui.components.SettingsGroup
@@ -66,6 +68,8 @@ private enum class VoiceTestStep(val key: String, @StringRes val title: Int, @St
     BREATHING("noise-breath", R.string.voice_test_breathing, R.string.voice_test_breathing_body, 3),
     TALKING("noise-talk", R.string.voice_test_talking, R.string.voice_test_talking_body, 3, seconds = 120),
     ROOM("noise-room", R.string.voice_test_room, R.string.voice_test_room_body, 5),
+    OTHERS("gate-others", R.string.voice_test_others, R.string.voice_test_others_body, 5, seconds = 120),
+    OVERLAP("gate-overlap", R.string.voice_test_overlap, R.string.voice_test_overlap_body, 5, seconds = 120),
 }
 
 private enum class VoiceTestPhase { READY, COUNTDOWN, RECORDING }
@@ -121,7 +125,7 @@ fun VoiceTestScreen(onBack: () -> Unit) {
             }
     }
 
-    SettingsScaffold(title = stringResource(R.string.voice_test_title), onBack = onBack) {
+    SettingsScaffold(title = stringResource(R.string.voice_test_title), onBack = onBack, actions = { Box(Modifier.padding(end = 16.dp)) { DebugPill() } }) {
         val step = selected?.let(steps::get)
         if (step == null) {
             item {

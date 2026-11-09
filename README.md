@@ -119,4 +119,4 @@ Bug reports and ideas: [GitHub issues](https://github.com/zlotny/marionette/issu
 
 ## License
 
-Public domain under the [Unlicense](LICENSE). Bundled libraries and models keep their own licenses, including [ONNX Runtime](https://github.com/microsoft/onnxruntime), [Silero VAD](https://github.com/snakers4/silero-vad), [openWakeWord](https://github.com/dscripka/openWakeWord) feature models, AndroidX, OkHttp and Tink.
+Public domain under the [Unlicense](LICENSE). Bundled libraries and models keep their own licenses, including [ONNX Runtime](https://github.com/microsoft/onnxruntime), [Silero VAD](https://github.com/snakers4/silero-vad), [openWakeWord](https://github.com/dscripka/openWakeWord) feature models, [xn-ptts](https://github.com/gradium-ai/xn-ptts), JNA, AndroidX, OkHttp and Tink. Optional downloads: [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (NVIDIA, CC BY 4.0) and [Phonon 40m multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) ([Gradium](https://gradium.ai), CC BY-NC 4.0, non-commercial use only).

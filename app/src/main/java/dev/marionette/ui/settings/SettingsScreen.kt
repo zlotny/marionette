@@ -137,7 +137,13 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
                         headline = stringResource(R.string.voice_group_recognition),
                         supporting = listOf(
                             if (settings.language.isBlank()) stringResource(R.string.voice_language_system) else Languages.displayName(settings.language),
-                            stringResource(if (settings.sttEngine == SttEngine.CLOUD) R.string.voice_engine_cloud else R.string.voice_engine_device),
+                            stringResource(
+                                when (settings.sttEngine) {
+                                    SttEngine.CLOUD -> R.string.voice_engine_cloud
+                                    SttEngine.PARAKEET -> R.string.voice_engine_parakeet
+                                    SttEngine.ANDROID_ON_DEVICE -> R.string.voice_engine_device
+                                },
+                            ),
                         ).joinToString(" · "),
                         leading = { SettingsIcon(Icons.Rounded.Translate) },
                         onClick = { onOpen(SettingsNavigation.Recognition) },
@@ -148,7 +154,11 @@ fun SettingsScreen(onBack: () -> Unit, onOpen: (Any) -> Unit) {
                         i, n,
                         headline = stringResource(R.string.voice_group_speech),
                         supporting = listOf(
-                            if (settings.ttsEngine == TtsEngine.CLOUD) settings.ttsCloud.title else stringResource(R.string.voice_speech_system),
+                            when (settings.ttsEngine) {
+                                TtsEngine.CLOUD -> settings.ttsCloud.title
+                                TtsEngine.PHONON -> "Phonon"
+                                TtsEngine.SYSTEM -> stringResource(R.string.voice_speech_system)
+                            },
                             "%.1f×".format(settings.speechRate),
                         ).joinToString(" · "),
                         leading = { SettingsIcon(Icons.Rounded.GraphicEq) },

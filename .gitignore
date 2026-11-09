@@ -17,3 +17,5 @@ app/src/main/assets/oww/
 app/src/main/assets/vad/
 .hallmark/
 __pycache__/
+app/src/lab/
+app/src/main/jniLibs/

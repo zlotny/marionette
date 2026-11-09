@@ -140,8 +140,8 @@ class Agent(
 
     private fun startsNewChat(source: TurnSource, s: AppSettings): Boolean {
         val chat = conversation.current.value
-        return source != TurnSource.TEXT && !s.continueConversation && chat.turns.isNotEmpty() &&
-            System.currentTimeMillis() - chat.updated > SESSION_IDLE_MILLIS
+        return source != TurnSource.TEXT && chat.turns.isNotEmpty() &&
+            s.conversationExpired(System.currentTimeMillis() - chat.updated)
     }
 
     private fun backendConfig(s: AppSettings, chat: Chat): BackendConfig {
@@ -589,7 +589,6 @@ class Agent(
         private const val MAX_HISTORY = 40
         private const val OLD_SCREEN_CHARS = 1_500
         private val SCREEN_TOOLS = setOf("ui_read", "ui_act", "open_app", "open_url", "open_settings", "screen_capture")
-        private const val SESSION_IDLE_MILLIS = 5 * 60_000L
         private const val PATCH_MILLIS = 4_000L
         private const val WARM_GAP_MILLIS = 4 * 60_000L
         private const val WARM_SESSION = "marionette-warm"

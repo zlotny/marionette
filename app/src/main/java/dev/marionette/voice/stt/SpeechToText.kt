@@ -11,6 +11,8 @@ interface SttSession {
 
     fun dropSpeculation() = Unit
 
+    fun endAudioAt(sample: Long?) = Unit
+
     val resumable: Boolean get() = false
 
     fun recorded(): ShortArray? = null

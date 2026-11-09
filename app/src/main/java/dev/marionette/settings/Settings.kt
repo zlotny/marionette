@@ -4,7 +4,7 @@ import dev.marionette.llm.BackendConfig
 import dev.marionette.llm.Provider
 import dev.marionette.llm.Thinking
 
-enum class SttEngine { ANDROID_ON_DEVICE, CLOUD }
+enum class SttEngine { ANDROID_ON_DEVICE, PARAKEET, CLOUD }
 
 enum class SttCloud(val title: String, val baseUrl: String, val provider: Provider, val models: List<String>) {
     OPENAI("OpenAI", "https://api.openai.com/v1", Provider.OPENAI, listOf("gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1")),
@@ -18,7 +18,7 @@ enum class SttCloud(val title: String, val baseUrl: String, val provider: Provid
     ),
 }
 
-enum class TtsEngine { SYSTEM, CLOUD }
+enum class TtsEngine { SYSTEM, CLOUD, PHONON }
 
 enum class TtsCloud(
     val title: String,
@@ -54,6 +54,7 @@ data class AppSettings(
     val recentModels: List<String> = emptyList(),
     val credentials: Map<Credential, String> = emptyMap(),
     val continueConversation: Boolean = false,
+    val conversationMinutes: Int = ConversationIdle.DEFAULT_MINUTES,
     val gatewayDeviceKey: String = "",
     val gatewayDeviceToken: String = "",
     val gatewayPairedUrl: String = "",
@@ -72,6 +73,7 @@ data class AppSettings(
     val notificationTalk: Boolean = false,
     val wakeOverlay: Boolean = true,
     val wakeScreenOn: Boolean = true,
+    val speakerEnd: Boolean = true,
     val sttEngine: SttEngine = SttEngine.ANDROID_ON_DEVICE,
     val sttCloud: SttCloud = SttCloud.OPENAI,
     val sttModel: String = "",
@@ -79,6 +81,7 @@ data class AppSettings(
     val language: String = "",
     val ttsVoice: String = "",
     val ttsEngine: TtsEngine = TtsEngine.SYSTEM,
+    val phononVoices: Map<String, String> = emptyMap(),
     val ttsCloud: TtsCloud = TtsCloud.OPENROUTER,
     val ttsModel: String = "",
     val ttsCloudVoice: String = "",
@@ -104,6 +107,9 @@ data class AppSettings(
     val backend: BackendConfig get() = BackendConfig(provider, baseUrl, model, apiKey, Thinking.of(thinking), agentModel)
     val ttsKey: String get() = key(Credential.of(ttsCloud.provider))
     val cloudSpeech: Boolean get() = ttsEngine == TtsEngine.CLOUD && ttsKey.isNotBlank()
+
+    fun conversationExpired(idleMillis: Long): Boolean =
+        !continueConversation && idleMillis > conversationMinutes * 60_000L
 
     fun backendFor(chatModel: String?, chatThinking: String?): BackendConfig {
         val base = backend
@@ -142,4 +148,11 @@ data class AppSettings(
             "de.number26.android",
         )
     }
+}
+
+object ConversationIdle {
+    const val DEFAULT_MINUTES = 5
+    val STOPS = listOf(5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240)
+
+    fun stopOf(minutes: Int): Int = STOPS.indices.minBy { kotlin.math.abs(STOPS[it] - minutes) }
 }

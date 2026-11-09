@@ -14,6 +14,8 @@ FILES = f"/sdcard/Android/data/{PKG}/files"
 SHOW_WINDOW_MS = 400
 IDLE_OVERLAY_MS = 6000
 CANCEL_HIDE_MS = 1500
+SEND_NOW_MS = 1000
+VOICE_GONE_CUT_MS = (6000, 9500)
 SETTLE_S = 7.5
 IDLE_PHASES = {"OFF", "PAUSED", "WAITING"}
 
@@ -33,6 +35,8 @@ SCENARIOS = [
     {"name": "confirm_by_voice", "trigger": "WAKE_WORD", "stt": ["mándale un sms a Lucía que llego tarde", "no"], "inject": 2},
     {"name": "cancel_while_speaking", "trigger": "WAKE_WORD", "stt": ["cuéntame un cuento"], "inject": 1, "cancel_after_speak_s": 1.5},
     {"name": "no_speech", "trigger": "WAKE_WORD", "stt": [], "inject": 0},
+    {"name": "voice_gone_over_talk", "trigger": "WAKE_WORD", "stt": ["qué hora es"], "inject": 1, "clip": "ux_me_then_others.wav", "speaker_profile": True},
+    {"name": "send_now_over_talk", "trigger": "WAKE_WORD", "stt": ["qué hora es"], "inject": 1, "clip": "ux_talking.wav", "send_after_listen_s": 3},
     {"name": "car_speaker_keeps_channel", "trigger": "WAKE_WORD", "stt": ["qué hora es"], "inject": 1,
      "route": ["--ez", "car", "true"], "expect_route": "android-auto 12 null", "expect_cues": True},
     {"name": "car_bluetooth_level", "trigger": "WAKE_WORD", "stt": ["qué hora es"], "inject": 1,
@@ -293,11 +297,51 @@ def screencap(path):
         subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=f)
 
 
+def wait_profile(events, kind):
+    begin = len(events.snapshot())
+    broadcast("DEBUG_RELOAD")
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        if any(e == "speaker_profile" and kind in (None, d) for _, e, d in events.snapshot()[begin:]):
+            return
+        time.sleep(0.2)
+    raise RuntimeError(f"speaker profile {kind} not ready")
+
+
+def check_voice_gone(sc, events):
+    if not sc.get("speaker_profile"):
+        return []
+    gone = next((d for _, e, d in events if e == "voice_gone"), None)
+    if gone is None:
+        return ["turn did not end by voice_gone"]
+    if not VOICE_GONE_CUT_MS[0] <= int(gone) <= VOICE_GONE_CUT_MS[1]:
+        return [f"audio cut at {gone} ms"]
+    return []
+
+
+def check_send_now(sc, events):
+    if not sc.get("send_after_listen_s"):
+        return []
+    sent = next((t for t, e, _ in events if e == "send_now"), None)
+    if sent is None:
+        return ["no send_now event"]
+    transcribing = next((t for t, e, d in events if e == "phase" and d == "TRANSCRIBING"), None)
+    if transcribing is None or transcribing < sent:
+        return [f"listening ended before send_now at {sent}: TRANSCRIBING at {transcribing}"]
+    if transcribing - sent > SEND_NOW_MS:
+        return [f"TRANSCRIBING {transcribing - sent} ms after send_now"]
+    return []
+
+
 def run_scenario(sc, out_dir, events):
     MOCK.transcripts = list(sc["stt"])
     broadcast("DEBUG_ROUTE", *sc.get("route", []))
     broadcast("DEBUG_BACKEND", "--ei", "phone_volume", str(sc.get("phone_volume", 0)))
     MOCK.log.clear()
+    if sc.get("speaker_profile"):
+        adb("shell", "chmod", "644", "/data/local/tmp/ux_speech_profile.wav")
+        adb("shell", "run-as", PKG, "sh", "-c", "'mkdir -p files/wake-samples && cp /data/local/tmp/ux_speech_profile.wav files/wake-samples/speech-1.wav'")
+        wait_profile(events, "speech")
     shots = os.path.join(out_dir, sc["name"])
     os.makedirs(shots, exist_ok=True)
     adb("shell", "am", "start", "-n", f"{PKG}/dev.marionette.ui.MainActivity")
@@ -313,6 +357,7 @@ def run_scenario(sc, out_dir, events):
     deadline = time.time() + 60
     ended_at = None
     cancel_at = None
+    send_at = None
     shot = 0
     while time.time() < deadline:
         items = events.snapshot()
@@ -326,7 +371,9 @@ def run_scenario(sc, out_dir, events):
                         f.write(adb("shell", "dumpsys", "audio"))
                 if injected < sc["inject"]:
                     injected += 1
-                    broadcast("DEBUG_AUDIO", "--es", "path", "ux_speech.wav")
+                    broadcast("DEBUG_AUDIO", "--es", "path", sc.get("clip", "ux_speech.wav"))
+                    if sc.get("send_after_listen_s"):
+                        send_at = time.time() + sc["send_after_listen_s"]
             elif event == "speak_start":
                 shot += 1
                 screencap(os.path.join(shots, f"{shot:02d}_speak.png"))
@@ -338,6 +385,11 @@ def run_scenario(sc, out_dir, events):
         if cancel_at and time.time() >= cancel_at:
             cancel_at = float("inf")
             broadcast("DEBUG_CANCEL")
+        if send_at and time.time() >= send_at:
+            send_at = None
+            shot += 1
+            screencap(os.path.join(shots, f"{shot:02d}_send_button.png"))
+            broadcast("DEBUG_SEND_NOW")
         if ended_at and time.time() - ended_at >= SETTLE_S:
             break
         time.sleep(0.05)
@@ -346,6 +398,11 @@ def run_scenario(sc, out_dir, events):
     scenario_events = events.snapshot()[begin:]
     failures = check(scenario_events, device_ms())
     failures += check_route(sc, scenario_events)
+    failures += check_send_now(sc, scenario_events)
+    failures += check_voice_gone(sc, scenario_events)
+    if sc.get("speaker_profile"):
+        adb("shell", "run-as", PKG, "rm", "-f", "files/wake-samples/speech-1.wav")
+        wait_profile(events, None)
     if ended_at is None:
         failures.append("turn did not end within 60 s")
     with open(os.path.join(shots, "events.txt"), "w") as f:

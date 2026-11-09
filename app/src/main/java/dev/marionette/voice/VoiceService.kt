@@ -1,5 +1,8 @@
 package dev.marionette.voice
 
+import dev.marionette.core.Lab
+import dev.marionette.voice.speaker.SpeakerGate
+import dev.marionette.voice.speaker.SpeakerProfile
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
@@ -9,6 +12,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.content.res.Resources
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
@@ -43,6 +47,11 @@ import dev.marionette.core.LinkSpeed
 import dev.marionette.core.Logger
 import dev.marionette.settings.Credential
 import dev.marionette.settings.SttEngine
+import dev.marionette.settings.TtsEngine
+import dev.marionette.voice.stt.Parakeet
+import dev.marionette.voice.phonon.Phonon
+import dev.marionette.voice.stt.ParakeetSpeechToText
+import dev.marionette.core.ModelState
 import dev.marionette.ui.MainActivity
 import dev.marionette.voice.stt.AndroidSpeechToText
 import dev.marionette.voice.stt.FallbackSpeechToText
@@ -96,7 +105,7 @@ class VoiceService : LifecycleService() {
 
     private enum class Mode { WAKE, COMMAND, ENROLL, BUSY }
 
-    private enum class Endpoint { SPEECH_END, NO_SPEECH, MAX_LENGTH, CANCELLED }
+    private enum class Endpoint { SPEECH_END, NO_SPEECH, MAX_LENGTH, CANCELLED, SEND_NOW, VOICE_GONE }
 
     private val graph get() = MarionetteApp.graph
     private val templates by lazy { WakeTemplates(this) }
@@ -119,6 +128,7 @@ class VoiceService : LifecycleService() {
     private var quietCached = false
     private var quietKey = 0 to 0
     private val marking = Mutex()
+    private val speakerLock = Mutex()
     private val leveler = VoiceLeveler()
 
     @Volatile private var mode = Mode.WAKE
@@ -157,6 +167,7 @@ class VoiceService : LifecycleService() {
         }
     }
     private var embedder: SpeechEmbedder? = null
+    @Volatile private var speakerProfile: SpeakerProfile? = null
     @Volatile private var vad: Vad? = null
     private var captureJob: Job? = null
     private var commandJob: Job? = null
@@ -179,6 +190,8 @@ class VoiceService : LifecycleService() {
         val endpoint: CompletableDeferred<Endpoint> = CompletableDeferred(),
         val resumed: CompletableDeferred<Unit> = CompletableDeferred(),
         @Volatile var inGrace: Boolean = false,
+        @Volatile var sendNow: Boolean = false,
+        val gate: SpeakerGate? = null,
         var resumedSpeechMillis: Long = 0,
         var speechStarted: Boolean = false,
         var silenceMillis: Long = 0,
@@ -200,7 +213,16 @@ class VoiceService : LifecycleService() {
             }
         }
         lifecycleScope.launch(guard) {
-            graph.settings.settings.map { Triple(it.language, it.sttEngine, it.sttCloud) }.distinctUntilChanged().collect { checkSpeechLanguage() }
+            combine(graph.settings.settings.map { Triple(it.language, it.sttEngine, it.sttCloud) }, Parakeet.state) { settings, state -> settings to state }.distinctUntilChanged().collect { checkSpeechLanguage() }
+        }
+        lifecycleScope.launch(guard) {
+            combine(graph.settings.settings.map { it.sttEngine == SttEngine.PARAKEET }, Parakeet.state) { on, state -> on && state == ModelState.Ready }
+                .distinctUntilChanged()
+                .collect { if (it) Parakeet.preload() else Parakeet.release() }
+        }
+        lifecycleScope.launch(guard) {
+            graph.settings.settings.map { it.ttsEngine == TtsEngine.PHONON }.distinctUntilChanged()
+                .collect { if (it) Phonon.preload() else Phonon.release() }
         }
         runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback) }
         lifecycleScope.launch(guard) {
@@ -235,6 +257,7 @@ class VoiceService : LifecycleService() {
                 trigger(TriggerSource.BUTTON, readAloud = it, followUp = intent.getBooleanExtra(EXTRA_FOLLOW_UP, false))
             }
             ACTION_CANCEL -> cancelCommand()
+            ACTION_SEND_NOW -> sendNow()
             ACTION_ENROLL_START -> startEnrollment(
                 append = intent.getBooleanExtra(EXTRA_APPEND, false),
                 stop = intent.getStringExtra(EXTRA_STOP_ID)?.let { it to intent.getStringExtra(EXTRA_STOP_LABEL).orEmpty() },
@@ -392,6 +415,12 @@ class VoiceService : LifecycleService() {
             it.copy(templateCount = loaded.size, usableTemplates = usable, speechRecordings = speech.size, falseWakes = falseWakes.count(), wakeArmed = armed, stopPhrases = stopPhrases.list())
         }
         Logger.i("Wake detector: ${loaded.size} templates, $usable usable, speech ${talk.size}, min level $minLevel dBFS, armed=$armed, stop templates ${stops.size}")
+        if (Lab.ON) lifecycleScope.launch(Dispatchers.IO + guard) { reloadSpeakerProfile() }
+    }
+
+    private suspend fun reloadSpeakerProfile() = speakerLock.withLock {
+        speakerProfile = runCatching { SpeakerProfile.load(this) }.onFailure { Logger.w("Speaker profile failed", it) }.getOrNull()
+        Logger.ux("speaker_profile", speakerProfile?.kind ?: "none")
     }
 
     private fun inCall(): Boolean = audio.mode in RINGING_MODES || (requestMic == null && audio.mode in CALL_MODES)
@@ -434,10 +463,8 @@ class VoiceService : LifecycleService() {
                 if (n == 0) continue
                 if (idlePaused()) return true
                 val workStart = System.nanoTime()
-                if (BuildConfig.DEBUG) {
-                    injected.poll()?.let { it.copyInto(pcm, 0, 0, minOf(it.size, n)) }
-                    tap?.invoke(pcm, n)
-                }
+                if (BuildConfig.DEBUG) injected.poll()?.let { it.copyInto(pcm, 0, 0, minOf(it.size, n)) }
+                if (Lab.ON) tap?.invoke(pcm, n)
                 var sum = 0.0
                 for (i in 0 until n) {
                     val s = pcm[i] / 32768f
@@ -486,9 +513,9 @@ class VoiceService : LifecycleService() {
                         commandSink?.let { sink ->
                             if (leveling) {
                                 for (i in 0 until n) leveledPcm[i] = (leveled[i] * 32768f).coerceIn(-32768f, 32767f).toInt().toShort()
-                                feedCommand(sink, leveledPcm, n, if (n == leveled.size) leveled else leveled.copyOf(n))
+                                feedCommand(sink, leveledPcm, n, if (n == leveled.size) leveled else leveled.copyOf(n), chunk)
                             } else {
-                                feedCommand(sink, pcm, n, chunk)
+                                feedCommand(sink, pcm, n, chunk, chunk)
                             }
                         }
                         hits.push(pcm, n)
@@ -545,13 +572,19 @@ class VoiceService : LifecycleService() {
         }
     }
 
-    private fun feedCommand(sink: CommandSink, pcm: ShortArray, n: Int, chunk: FloatArray) {
+    private fun feedCommand(sink: CommandSink, pcm: ShortArray, n: Int, chunk: FloatArray, raw: FloatArray) {
         if (sink.endpoint.isCompleted && !sink.inGrace) return
         sink.session.accept(pcm, n)
         val vad = vad ?: runCatching { Vad(assets) }.onFailure { Logger.e("VAD load failed", it) }.getOrNull()?.also { vad = it }
         val detected = vad?.accept(chunk) ?: energyProbability(chunk)
         val chunkMillis = n * 1000L / AudioSpec.SAMPLE_RATE
-        val probability = if (sink.elapsedMillis < sink.beepMillis) (SILENCE_PROBABILITY + SPEECH_PROBABILITY) / 2 else detected
+        val inBeep = sink.elapsedMillis < sink.beepMillis
+        val probability = if (inBeep) (SILENCE_PROBABILITY + SPEECH_PROBABILITY) / 2 else detected
+        sink.gate?.accept(raw.takeUnless { inBeep }, n, !inBeep && detected >= GATE_SPEECH_PROBABILITY)
+        if (sink.gate?.gone == true && sink.endpoint.isCompleted) {
+            if (sink.gate.voiceBack) sink.resumed.complete(Unit)
+            return
+        }
         if (sink.endpoint.isCompleted) {
             sink.resumedSpeechMillis = if (probability >= SPEECH_PROBABILITY) sink.resumedSpeechMillis + chunkMillis else 0
             if (sink.resumedSpeechMillis >= RESUME_SPEECH_MILLIS) sink.resumed.complete(Unit)
@@ -575,6 +608,7 @@ class VoiceService : LifecycleService() {
             sink.speechStarted && sink.silenceMillis >= silenceLimit -> sink.endpoint.complete(Endpoint.SPEECH_END)
             sink.quickAnswer && sink.speechStarted && sink.silenceMillis >= QUICK_ANSWER_SILENCE_MILLIS && isBareAnswer(latestPartial) ->
                 sink.endpoint.complete(Endpoint.SPEECH_END)
+            sink.speechStarted && sink.gate?.gone == true && graph.settings.current.speakerEnd -> sink.endpoint.complete(Endpoint.VOICE_GONE)
             !sink.speechStarted && sink.elapsedMillis >= sink.noSpeechMillis -> sink.endpoint.complete(Endpoint.NO_SPEECH)
             sink.elapsedMillis >= MAX_COMMAND_MILLIS -> sink.endpoint.complete(Endpoint.MAX_LENGTH)
         }
@@ -617,6 +651,13 @@ class VoiceService : LifecycleService() {
             putBoolean(AssistantSession.EXTRA_FOLLOW_UP, followUp)
         }
         runCatching { service.showSession(args, 0) }.onFailure { Logger.w("Overlay showSession failed", it) }
+    }
+
+    private fun sendNow() {
+        val sink = commandSink ?: return
+        Logger.ux("send_now")
+        sink.sendNow = true
+        sink.endpoint.complete(Endpoint.SEND_NOW)
     }
 
     private fun cancelCommand() {
@@ -804,7 +845,10 @@ class VoiceService : LifecycleService() {
             return ""
         }
         vad?.reset()
-        var sink = CommandSink(session, noSpeechMillis, beepMillis = beepMillis, quickAnswer = quickAnswer)
+        val micRoute = graph.audioRoutes.route()
+        val phoneMic = !micRoute.car && micRoute.requestInput?.type.let { it == null || it == AudioDeviceInfo.TYPE_BUILTIN_MIC }
+        val gate = speakerProfile?.takeIf { Lab.ON && phoneMic }?.let { SpeakerGate(this, it) }
+        var sink = CommandSink(session, noSpeechMillis, beepMillis = beepMillis, quickAnswer = quickAnswer, gate = gate)
         var early: Deferred<Result<String>>? = null
         var grace: Deferred<Result<String>>? = null
         try {
@@ -816,18 +860,27 @@ class VoiceService : LifecycleService() {
                 mode = Mode.COMMAND
                 val endpoint = sink.endpoint.await()
                 Logger.i("Endpoint $endpoint after ${sink.elapsedMillis} ms")
+                gate?.endpoint = endpoint.name
+                val voiceGone = endpoint == Endpoint.VOICE_GONE
+                if (voiceGone) {
+                    session.dropSpeculation()
+                    session.endAudioAt(gate?.cutSample)
+                    Logger.ux("voice_gone", gate?.cutSample?.let { it * 1000 / AudioSpec.SAMPLE_RATE })
+                }
                 if (endpoint == Endpoint.NO_SPEECH || endpoint == Endpoint.CANCELLED) {
                     session.cancel()
                     return ""
                 }
-                if (endpoint != Endpoint.SPEECH_END || !session.resumable) break
+                if ((endpoint != Endpoint.SPEECH_END && !voiceGone) || !session.resumable) break
                 sink.inGrace = true
                 val pending = lifecycleScope.async { runCatching { session.finish() } }
                 grace = pending
                 val graceStart = SystemClock.elapsedRealtime()
-                val resumed = withTimeoutOrNull(RESUME_GRACE_MILLIS) {
-                    while (!sink.resumed.isCompleted && !(pending.isCompleted && SystemClock.elapsedRealtime() - graceStart >= MIN_GRACE_MILLIS)) delay(GRACE_POLL_MILLIS)
-                    sink.resumed.isCompleted
+                val graceLimit = if (voiceGone) VOICE_GONE_GRACE_MILLIS else RESUME_GRACE_MILLIS
+                val minGrace = if (voiceGone) VOICE_GONE_GRACE_MILLIS else MIN_GRACE_MILLIS
+                val resumed = withTimeoutOrNull(graceLimit) {
+                    while (!sink.sendNow && !sink.resumed.isCompleted && !(pending.isCompleted && SystemClock.elapsedRealtime() - graceStart >= minGrace)) delay(GRACE_POLL_MILLIS)
+                    sink.resumed.isCompleted && !sink.sendNow
                 } == true
                 if (!resumed) {
                     sink.inGrace = false
@@ -836,8 +889,10 @@ class VoiceService : LifecycleService() {
                 }
                 pending.cancel()
                 session.dropSpeculation()
+                session.endAudioAt(null)
+                gate?.rearm()
                 Logger.i("Speech resumed after the endpoint")
-                sink = CommandSink(session, noSpeechMillis, quickAnswer = quickAnswer, speechStarted = true, elapsedMillis = sink.elapsedMillis)
+                sink = CommandSink(session, noSpeechMillis, quickAnswer = quickAnswer, speechStarted = true, elapsedMillis = sink.elapsedMillis, gate = gate)
             }
         } catch (e: CancellationException) {
             grace?.cancel()
@@ -846,6 +901,7 @@ class VoiceService : LifecycleService() {
         } finally {
             mode = Mode.BUSY
             commandSink = null
+            gate?.close()
         }
         val cues = lifecycleScope.launch(guard) {
             playEarcon(Earcon.WORKING)
@@ -943,7 +999,7 @@ class VoiceService : LifecycleService() {
                 .takeIf { it == settings.language || speaker.speaks(it) } ?: settings.language
         }
         val voice = settings.ttsVoice.takeIf { language == settings.language }.orEmpty()
-        val cloud = CloudVoice.from(settings)?.takeUnless { LinkSpeed.slow(this) }
+        val cloud = SpeechSource.from(settings)?.takeUnless { it is CloudVoice && LinkSpeed.slow(this) }
         speech.withLock {
             Logger.ux("speak_start", text.length)
             try {
@@ -1087,6 +1143,7 @@ class VoiceService : LifecycleService() {
         )
         return when {
             settings.sttEngine == SttEngine.CLOUD && remote.isAvailable() -> FallbackSpeechToText(remote, AndroidSpeechToText(this))
+            settings.sttEngine == SttEngine.PARAKEET && Parakeet.installed() -> FallbackSpeechToText(ParakeetSpeechToText(), AndroidSpeechToText(this))
             else -> AndroidSpeechToText(this)
         }
     }
@@ -1287,6 +1344,7 @@ class VoiceService : LifecycleService() {
         const val EXTRA_FALSE = "false_wake"
         const val EXTRA_FOLLOW_UP = "follow_up"
         const val ACTION_CANCEL = "dev.marionette.voice.CANCEL"
+        const val ACTION_SEND_NOW = "dev.marionette.voice.SEND_NOW"
         const val ACTION_ENROLL_START = "dev.marionette.voice.ENROLL_START"
         const val EXTRA_APPEND = "append"
         const val ACTION_ENROLL_FINISH = "dev.marionette.voice.ENROLL_FINISH"
@@ -1311,6 +1369,8 @@ class VoiceService : LifecycleService() {
         private const val PULSE_MILLIS = 1_600L
         private const val SLOW_NETWORK_MILLIS = 5_000L
         private const val RESUME_GRACE_MILLIS = 700L
+        private const val VOICE_GONE_GRACE_MILLIS = 1_000L
+        private const val GATE_SPEECH_PROBABILITY = 0.5f
         private const val MIC_RETRY_MIN_MILLIS = 500L
         private const val MIC_RETRY_MAX_MILLIS = 30_000L
         private const val MIN_GRACE_MILLIS = 350L
@@ -1321,7 +1381,7 @@ class VoiceService : LifecycleService() {
         private const val CONFIRM_TIMEOUT_MILLIS = 5_000L
         private const val MAX_COMMAND_MILLIS = 120_000L
         private const val TURN_WAKE_LOCK_MILLIS = 5 * 60_000L
-        private val IDLE_ONLY_ACTIONS = setOf(ACTION_STOP, ACTION_CANCEL)
+        private val IDLE_ONLY_ACTIONS = setOf(ACTION_STOP, ACTION_CANCEL, ACTION_SEND_NOW)
         private const val SPEECH_PROBABILITY = 0.55f
         private const val SILENCE_PROBABILITY = 0.35f
         private const val SPECULATE_MILLIS = 320L
